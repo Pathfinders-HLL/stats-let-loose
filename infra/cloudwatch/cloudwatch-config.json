@@ -1,0 +1,24 @@
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "root"
+  },
+  "metrics": {
+    "namespace": "stats-let-loose/lightsail",
+    "metrics_collected": {
+      "mem": {
+        "measurement": [
+          {
+            "name": "mem_used_percent",
+            "rename": "MemoryUtilization"
+          },
+          {
+            "name": "mem_available",
+            "rename": "MemoryAvailable"
+          }
+        ],
+        "metrics_collection_interval": 60
+      }
+    }
+  }
+}

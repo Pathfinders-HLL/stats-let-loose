@@ -1,0 +1,13 @@
+# API Ingestion service requirements
+
+# Database access
+psycopg2-binary~=2.9.11
+
+# Environment variable management
+python-dotenv~=1.2
+
+# HTTP requests for API calls
+requests>=2.32.0
+
+# AWS services (needed for future features)
+boto3>=1.42.0

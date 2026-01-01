@@ -1,0 +1,17 @@
+# Discord Bot service requirements
+
+# Database access
+psycopg2-binary~=2.9.11
+
+# Environment variable management
+python-dotenv~=1.2
+
+# Discord API library
+discord.py>=2.3.0
+
+# Caching library for player ID storage
+cachetools==6.2.4
+
+# Async PostgreSQL driver for non-blocking database operations
+asyncpg~=0.31
+

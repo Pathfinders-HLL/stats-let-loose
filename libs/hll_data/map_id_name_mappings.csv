@@ -1,0 +1,152 @@
+map_id,map_pretty_name
+CAR_S_1944_Day_P_Skirmish,Carentan
+CAR_S_1944_Dusk_P_Skirmish,Carentan
+CAR_S_1944_Rain_P_Skirmish,Carentan
+carentan_offensive_ger,Carentan
+carentan_offensive_us,Carentan
+carentan_warfare,Carentan
+carentan_warfare_night,Carentan
+DRL_S_1944_Day_P_Skirmish,Driel
+DRL_S_1944_Night_P_Skirmish,Driel
+DRL_S_1944_P_Skirmish,Driel
+driel_offensive_ger,Driel
+driel_offensive_us,Driel
+driel_warfare,Driel
+driel_warfare_night,Driel
+ELA_S_1942_Night_P_Skirmish,El Alamein
+ELA_S_1942_P_Skirmish,El Alamein
+elalamein_offensive_CW,El Alamein
+elalamein_offensive_ger,El Alamein
+elalamein_warfare,El Alamein
+elalamein_warfare_night,El Alamein
+EBR_S_1944_...,Elsenborn Ridge
+elsenbornridge_offensiveUS_day,Elsenborn Ridge
+elsenbornridge_offensiveUS_evening,Elsenborn Ridge
+elsenbornridge_offensiveUS_morning,Elsenborn Ridge
+elsenbornridge_offensiveUS_night,Elsenborn Ridge
+elsenbornridge_offensiveger_day,Elsenborn Ridge
+elsenbornridge_offensiveger_evening,Elsenborn Ridge
+elsenbornridge_offensiveger_morning,Elsenborn Ridge
+elsenbornridge_offensiveger_night,Elsenborn Ridge
+elsenbornridge_skirmish_day,Elsenborn Ridge
+elsenbornridge_skirmish_evening,Elsenborn Ridge
+elsenbornridge_skirmish_morning,Elsenborn Ridge
+elsenbornridge_skirmish_night,Elsenborn Ridge
+elsenbornridge_warfare_day,Elsenborn Ridge
+elsenbornridge_warfare_evening,Elsenborn Ridge
+elsenbornridge_warfare_morning,Elsenborn Ridge
+elsenbornridge_warfare_night,Elsenborn Ridge
+FOY_S_1944_Night_P_Skirmish,Foy
+FOY_S_1944_P_Skirmish,Foy
+foy_offensive_ger,Foy
+foy_offensive_us,Foy
+foy_warfare,Foy
+foy_warfare_night,Foy
+HIL_S_1944_Day_P_Skirmish,Hill 400
+HIL_S_1944_Dusk_P_Skirmish,Hill 400
+HIL_S_1944_Night_P_Skirmish,Hill 400
+hill400_offensive_US,Hill 400
+hill400_offensive_ger,Hill 400
+hill400_warfare,Hill 400
+hill400_warfare_night,Hill 400
+hurtgenforest_offensive_US,Hurtgen Forest
+hurtgenforest_offensive_ger,Hurtgen Forest
+hurtgenforest_warfare_V2,Hurtgen Forest
+hurtgenforest_warfare_V2_night,Hurtgen Forest
+KHA_S_1944_Night_P_Skirmish,Kharkov
+KHA_S_1944_P_Skirmish,Kharkov
+kharkov_offensive_ger,Kharkov
+kharkov_offensive_rus,Kharkov
+kharkov_warfare,Kharkov
+kharkov_warfare_night,Kharkov
+kursk_offensive_ger,Kursk
+kursk_offensive_rus,Kursk
+kursk_warfare,Kursk
+kursk_warfare_night,Kursk
+mortain_offensiveUS_day,Mortain
+mortain_offensiveUS_dusk,Mortain
+mortain_offensiveUS_night,Mortain
+mortain_offensiveUS_overcast,Mortain
+mortain_offensiveger_day,Mortain
+mortain_offensiveger_dusk,Mortain
+mortain_offensiveger_night,Mortain
+mortain_offensiveger_overcast,Mortain
+mortain_skirmish_day,Mortain
+mortain_skirmish_dusk,Mortain
+mortain_skirmish_night,Mortain
+mortain_skirmish_overcast,Mortain
+mortain_warfare_day,Mortain
+mortain_warfare_dusk,Mortain
+mortain_warfare_night,Mortain
+mortain_warfare_overcast,Mortain
+omahabeach_offensive_ger,Omaha Beach
+omahabeach_offensive_us,Omaha Beach
+omahabeach_warfare,Omaha Beach
+omahabeach_warfare_night,Omaha Beach
+PHL_L_1944_OffensiveGER,Purple Heart Lane
+PHL_L_1944_OffensiveUS,Purple Heart Lane
+PHL_L_1944_Warfare,Purple Heart Lane
+PHL_L_1944_Warfare_Night,Purple Heart Lane
+PHL_S_1944_Morning_P_Skirmish,Purple Heart Lane
+PHL_S_1944_Night_P_Skirmish,Purple Heart Lane
+PHL_S_1944_Rain_P_Skirmish,Purple Heart Lane
+purpleheartlane_offensive_ger,Purple Heart Lane
+purpleheartlane_offensive_us,Purple Heart Lane
+purpleheartlane_warfare,Purple Heart Lane
+purpleheartlane_warfare_night,Purple Heart Lane
+remagen_offensive_ger,Remagen
+remagen_offensive_us,Remagen
+remagen_warfare,Remagen
+remagen_warfare_night,Remagen
+SMDM_S_1944_Day_P_Skirmish,St. Marie Du Mont
+SMDM_S_1944_Night_P_Skirmish,St. Marie Du Mont
+SMDM_S_1944_Rain_P_Skirmish,St. Marie Du Mont
+stmariedumont_off_ger,St. Marie Du Mont
+stmariedumont_off_us,St. Marie Du Mont
+stmariedumont_warfare,St. Marie Du Mont
+stmariedumont_warfare_night,St. Marie Du Mont
+SME_S_1944_Day_P_Skirmish,St. Mere Eglise
+SME_S_1944_Morning_P_Skirmish,St. Mere Eglise
+SME_S_1944_Night_P_Skirmish,St. Mere Eglise
+stmereeglise_offensive_ger,St. Mere Eglise
+stmereeglise_offensive_us,St. Mere Eglise
+stmereeglise_warfare,St. Mere Eglise
+stmereeglise_warfare_night,St. Mere Eglise
+STA_L_1942_OffensiveGER,Stalingrad
+STA_L_1942_OffensiveRUS,Stalingrad
+STA_L_1942_Warfare,Stalingrad
+STA_L_1942_Warfare_Night,Stalingrad
+STA_S_1942_P_Skirmish_Dusk,Stalingrad
+STA_S_1942_P_Skirmish_Overcast,Stalingrad
+stalingrad_offensive_ger,Stalingrad
+stalingrad_offensive_rus,Stalingrad
+stalingrad_warfare,Stalingrad
+stalingrad_warfare_night,Stalingrad
+smolensk_offensiveGer_day,Smolensk
+smolensk_offensiveGer_dusk,Smolensk
+smolensk_offensiveGer_night,Smolensk
+smolensk_offensiveRus_day,Smolensk
+smolensk_offensiveRus_dusk,Smolensk
+smolensk_offensiveRus_night,Smolensk
+smolensk_skirmish_day,Smolensk
+smolensk_skirmish_dusk,Smolensk
+smolensk_skirmish_night,Smolensk
+smolensk_warfare_day,Smolensk
+smolensk_warfare_dusk,Smolensk
+smolensk_warfare_night,Smolensk
+tobruk_offensivebritish_day,Tobruk
+tobruk_offensivebritish_dusk,Tobruk
+tobruk_offensivebritish_morning,Tobruk
+tobruk_offensiveger_day,Tobruk
+tobruk_offensiveger_dusk,Tobruk
+tobruk_offensiveger_morning,Tobruk
+tobruk_skirmish_day,Tobruk
+tobruk_skirmish_dusk,Tobruk
+tobruk_skirmish_morning,Tobruk
+tobruk_warfare_day,Tobruk
+tobruk_warfare_dusk,Tobruk
+tobruk_warfare_morning,Tobruk
+utahbeach_offensive_ger,Utah Beach
+utahbeach_offensive_us,Utah Beach
+utahbeach_warfare,Utah Beach
+utahbeach_warfare_night,Utah Beach

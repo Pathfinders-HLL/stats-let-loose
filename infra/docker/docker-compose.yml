@@ -1,0 +1,138 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: statsletloose-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-stats_let_loose}
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_INGESTION_PASSWORD: ${POSTGRES_INGESTION_PASSWORD}
+      POSTGRES_RO_PASSWORD: ${POSTGRES_RO_PASSWORD}
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    entrypoint: ["/bin/bash", "/postgres-entrypoint.sh"]
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c effective_cache_size=1408MB
+      -c maintenance_work_mem=256MB
+      -c work_mem=16MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=64MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c max_connections=50
+      -c max_parallel_workers_per_gather=2
+      -c max_parallel_workers=4
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../sql:/docker-entrypoint-initdb.d/sql:ro
+      - ./check-and-create-tables.sh:/check-and-create-tables.sh:ro
+      - ./postgres-entrypoint.sh:/postgres-entrypoint.sh:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-stats_let_loose}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - statsletloose-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2048M
+        reservations:
+          memory: 512M
+
+  stats-api-ingestion:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api-ingestion
+    container_name: statsletloose-api-ingestion
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-stats_let_loose}
+      POSTGRES_USER: ${POSTGRES_INGESTION_USER:-pathfinder_ingestion}
+      POSTGRES_PASSWORD: ${POSTGRES_INGESTION_PASSWORD}
+      INGESTION_BASE_URL: ${INGESTION_BASE_URL}
+      MATCH_HISTORY_BATCH_SIZE: ${MATCH_HISTORY_BATCH_SIZE:-25}
+      PLAYER_STATS_BATCH_SIZE: ${PLAYER_STATS_BATCH_SIZE:-25}
+      API_INGESTION_DATA_DIR: /app/data
+    volumes:
+      - ../../apps/api_stats_ingestion:/app/apps/api_stats_ingestion:ro
+      - ../../libs:/app/libs:ro
+      - api_ingestion_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - statsletloose-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    # Run every 30 minutes using a cron-like scheduler
+    command: >
+      sh -c "
+        echo 'Starting API ingestion scheduler...' &&
+        while true; do
+          echo \"\$(date): Running API ingestion job...\" &&
+          cd /app && python -m apps.api_stats_ingestion.ingestion_cli --skip-existing-fetch &&
+          echo \"\$(date): Job completed. Waiting 30 minutes...\" &&
+          sleep 1800
+        done
+      "
+
+  discord-stats-bot:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.discord-bot
+    container_name: statsletloose-discord-bot
+    environment:
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      DISCORD_ALLOWED_CHANNEL_IDS: ${DISCORD_ALLOWED_CHANNEL_IDS}
+      DISCORD_DEV_GUILD_ID: ${DISCORD_DEV_GUILD_ID}
+      DISCORD_STATS_CHANNEL_ID: ${DISCORD_STATS_CHANNEL_ID}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-stats_let_loose}
+      POSTGRES_RO_USER: ${POSTGRES_RO_USER:-pathfinder_ro}
+      POSTGRES_RO_PASSWORD: ${POSTGRES_RO_PASSWORD}
+      # Cache directory for persistent storage
+      DISCORD_BOT_CACHE_DIR: /app/data/cache
+    volumes:
+      - ../../apps/discord_stats_bot:/app/apps/discord_stats_bot:ro
+      - ../../libs:/app/libs:ro
+      - discord_bot_cache:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - statsletloose-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+volumes:
+  postgres_data:
+    driver: local
+  api_ingestion_data:
+    driver: local
+  discord_bot_cache:
+    driver: local
+
+networks:
+  statsletloose-network:
+    driver: bridge

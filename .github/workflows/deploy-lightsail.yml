@@ -1,0 +1,247 @@
+name: Deploy SLL to AWS Lightsail
+
+on:
+  push:
+    branches:
+      - main
+      - debug
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-west-2
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set deployment variables based on branch
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            {
+              echo 'LIGHTSAIL_SSH_KEY<<ENDOFFILE'
+              printf '%s\n' "${{ secrets.LIGHTSAIL_SSH_PRIVATE_KEY }}"
+              echo 'ENDOFFILE'
+            } >> $GITHUB_ENV
+            echo "LIGHTSAIL_HOST=${{ secrets.LIGHTSAIL_HOST }}" >> $GITHUB_ENV
+            {
+              echo 'DOT_ENV_FILE<<ENDOFFILE'
+              printf '%s\n' "${{ secrets.DOT_ENV_FILE }}"
+              echo 'ENDOFFILE'
+            } >> $GITHUB_ENV
+            echo "Using production secrets for main branch"
+          elif [ "${{ github.ref_name }}" = "debug" ]; then
+            {
+              echo 'LIGHTSAIL_SSH_KEY<<ENDOFFILE'
+              printf '%s\n' "${{ secrets.LIGHTSAIL_SSH_PRIVATE_KEY_DEBUG }}"
+              echo 'ENDOFFILE'
+            } >> $GITHUB_ENV
+            echo "LIGHTSAIL_HOST=${{ secrets.LIGHTSAIL_HOST_DEBUG }}" >> $GITHUB_ENV
+            {
+              echo 'DOT_ENV_FILE<<ENDOFFILE'
+              printf '%s\n' "${{ secrets.DOT_ENV_FILE_DEBUG }}"
+              echo 'ENDOFFILE'
+            } >> $GITHUB_ENV
+            echo "Using debug secrets for debug branch"
+          else
+            echo "Branch ${{ github.ref_name }} not configured for deployment"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          # Write SSH key using printf to handle multiline secrets properly
+          printf '%s\n' "${{ env.LIGHTSAIL_SSH_KEY }}" > ~/.ssh/lightsail_key
+          chmod 600 ~/.ssh/lightsail_key
+          # Verify key file was created and has content
+          if [ ! -s ~/.ssh/lightsail_key ]; then
+            echo "Error: SSH key file is empty or missing"
+            exit 1
+          fi
+          # Test key format
+          if ! ssh-keygen -l -f ~/.ssh/lightsail_key > /dev/null 2>&1; then
+            echo "Error: SSH key format is invalid"
+            exit 1
+          fi
+          # Add host to known_hosts (ignore errors if already exists)
+          ssh-keyscan -H ${{ env.LIGHTSAIL_HOST }} >> ~/.ssh/known_hosts 2>&1 || true
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Copy CloudWatch config file
+        run: |
+          scp -i ~/.ssh/lightsail_key \
+            infra/cloudwatch/cloudwatch-config.json \
+            ${{ secrets.LIGHTSAIL_USER }}@${{ env.LIGHTSAIL_HOST }}:/tmp/cloudwatch-config.json
+
+      - name: Setup CloudWatch Agent
+        run: |
+          ssh -i ~/.ssh/lightsail_key ${{ secrets.LIGHTSAIL_USER }}@${{ env.LIGHTSAIL_HOST }} << 'EOF'
+            # Check if CloudWatch Agent is already installed
+            if ! command -v amazon-cloudwatch-agent &> /dev/null; then
+              echo "Installing CloudWatch Agent..."
+              
+              # Download and install CloudWatch Agent
+              wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+              sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
+              rm ./amazon-cloudwatch-agent.deb
+              
+              echo "CloudWatch Agent installed successfully"
+            else
+              echo "CloudWatch Agent is already installed"
+            fi
+            
+            # Create CloudWatch config directory if it doesn't exist
+            sudo mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
+            
+            # Copy CloudWatch config file to system location
+            if [ -f /tmp/cloudwatch-config.json ]; then
+              echo "Copying CloudWatch Agent configuration..."
+              sudo cp /tmp/cloudwatch-config.json /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+              sudo chmod 644 /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+              rm /tmp/cloudwatch-config.json
+              echo "Config file copied successfully"
+            else
+              echo "Error: CloudWatch config file not found at /tmp/cloudwatch-config.json"
+              exit 1
+            fi
+            
+            # Verify config file exists and is valid JSON
+            if [ ! -f /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json ]; then
+              echo "Error: Config file does not exist after copy"
+              exit 1
+            fi
+            
+            # Validate JSON syntax
+            if ! python3 -m json.tool /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json > /dev/null 2>&1; then
+              echo "Warning: Config file may not be valid JSON, but continuing..."
+            fi
+            
+            # Stop agent if it's running (to allow reconfiguration)
+            echo "Stopping CloudWatch Agent if running..."
+            sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -m onPremise -a stop || true
+            
+            # Start CloudWatch Agent (using onPremise mode for Lightsail compatibility)
+            # Note: If your Lightsail instance has an IAM role with CloudWatch permissions,
+            # you can change 'onPremise' to 'ec2' in the command below
+            echo "Starting CloudWatch Agent with configuration..."
+            sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+              -a fetch-config \
+              -m onPremise \
+              -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
+              -s
+            
+            # Wait a moment for agent to start
+            sleep 2
+            
+            # Check agent status
+            echo ""
+            echo "CloudWatch Agent status:"
+            sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -m onPremise -a status
+            
+            # Check if credentials are configured (warn if not)
+            if [ ! -f /root/.aws/credentials ] || ! grep -q "\[AmazonCloudWatchAgent\]" /root/.aws/credentials 2>/dev/null; then
+              echo ""
+              echo "WARNING: CloudWatch Agent credentials may not be configured."
+              echo "The agent may not be able to send metrics without AWS credentials."
+            fi
+          EOF
+
+      - name: Copy files to Lightsail instance
+        run: |
+          scp -i ~/.ssh/lightsail_key -r \
+            infra/ \
+            sql/ \
+            apps/ \
+            libs/ \
+            ${{ secrets.LIGHTSAIL_USER }}@${{ env.LIGHTSAIL_HOST }}:/home/${{ secrets.LIGHTSAIL_USER }}/stats-let-loose/
+
+      - name: Create .env file on Lightsail instance
+        run: |
+          # Create .env file locally first, then copy it
+          echo "${{ env.DOT_ENV_FILE }}" > /tmp/deploy_env_file
+          
+          # Copy .env file to Lightsail instance
+          scp -i ~/.ssh/lightsail_key \
+            /tmp/deploy_env_file \
+            ${{ secrets.LIGHTSAIL_USER }}@${{ env.LIGHTSAIL_HOST }}:/home/${{ secrets.LIGHTSAIL_USER }}/stats-let-loose/infra/docker/.env
+          
+          # Set permissions and verify on remote server
+          ssh -i ~/.ssh/lightsail_key ${{ secrets.LIGHTSAIL_USER }}@${{ env.LIGHTSAIL_HOST }} << 'EOF'
+            cd ~/stats-let-loose/infra/docker
+            
+            # Set secure permissions (read/write for owner only)
+            chmod 600 .env
+            
+            # Verify file was created and has content
+            if [ ! -s .env ]; then
+              echo "Error: .env file is empty or was not created"
+              exit 1
+            fi
+            
+            echo ".env file created successfully"
+            # Don't print contents for security
+          EOF
+          
+          # Clean up local temp file
+          rm -f /tmp/deploy_env_file
+
+      - name: Deploy on Lightsail instance
+        run: |
+          ssh -i ~/.ssh/lightsail_key ${{ secrets.LIGHTSAIL_USER }}@${{ env.LIGHTSAIL_HOST }} << 'EOF'
+            cd ~/stats-let-loose/infra/docker
+            
+            # Ensure Docker and Docker Compose are installed
+            if ! command -v docker &> /dev/null; then
+              echo "Docker not found. Please install Docker on the Lightsail instance."
+              exit 1
+            fi
+            
+            # Ensure user is in docker group (fixes permission issues for future runs)
+            if ! groups | grep -q "\bdocker\b"; then
+              echo "Adding user to docker group..."
+              sudo usermod -aG docker $USER
+            fi
+            
+            # Verify .env file exists
+            if [ ! -f .env ]; then
+              echo "Error: .env file not found. Deployment cannot continue."
+              exit 1
+            fi
+            
+            # Use sudo for docker commands to avoid permission issues
+            sudo docker compose build --no-cache
+            
+            # Stop existing containers (without removing volumes)
+            sudo docker compose down
+            
+            # Start services
+            sudo docker compose up -d
+            
+            # Show logs
+            sudo docker compose logs --tail=50
+          EOF
+
+      - name: Verify deployment
+        run: |
+          ssh -i ~/.ssh/lightsail_key ${{ secrets.LIGHTSAIL_USER }}@${{ env.LIGHTSAIL_HOST }} << 'EOF'
+            cd ~/stats-let-loose/infra/docker
+            sudo docker compose ps
+            sudo docker compose logs --tail=20
+            
+            # Verify CloudWatch Agent is running
+            echo ""
+            echo "=== CloudWatch Agent Status ==="
+            sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -m onPremise -a status || echo "CloudWatch Agent status check failed"
+          EOF
