@@ -12,9 +12,9 @@ from discord import app_commands
 from apps.discord_stats_bot.common.shared import (
     get_readonly_db_pool,
     log_command_completion,
-    get_pathfinder_player_ids,
     command_wrapper
 )
+from apps.discord_stats_bot.common.pathfinder_player_cache import get_pathfinder_player_ids
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,17 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
         # Connect to database and query
         pool = await get_readonly_db_pool()
         async with pool.acquire() as conn:
-            # Get pathfinder player IDs from file if needed
+            # Get pathfinder player IDs from cache if needed
             pathfinder_ids = get_pathfinder_player_ids() if only_pathfinders else set()
+            
+            # If only_pathfinders is True but no IDs available, return error
+            if only_pathfinders and not pathfinder_ids:
+                await interaction.followup.send(
+                    "❌ Unable to load Pathfinder player IDs. Cannot filter by Pathfinders. Please try again later."
+                )
+                log_command_completion("leaderboard 100killgames", command_start_time, success=False, interaction=interaction, kwargs={"only_pathfinders": only_pathfinders})
+                return
+            
             pathfinder_ids_list = list(pathfinder_ids) if pathfinder_ids else []
             
             # Build WHERE clause conditionally
@@ -49,12 +58,8 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
             pathfinder_where = ""
             
             if only_pathfinders:
-                if pathfinder_ids:
-                    pathfinder_where = f"AND (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
-                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
-                else:
-                    pathfinder_where = f"AND (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1})"
-                    query_params.extend(["PFr |%", "PF |%"])
+                pathfinder_where = f"AND pms.player_id = ANY(${param_num}::text[])"
+                query_params.append(pathfinder_ids_list)
             
             # Build query to find players with most 100+ kill games
             query = f"""

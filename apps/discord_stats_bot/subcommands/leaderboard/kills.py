@@ -17,9 +17,9 @@ from apps.discord_stats_bot.common.shared import (
     validate_over_last_days,
     validate_choice_parameter,
     create_time_filter_params,
-    command_wrapper,
-    get_pathfinder_player_ids
+    command_wrapper
 )
+from apps.discord_stats_bot.common.pathfinder_player_cache import get_pathfinder_player_ids
 
 logger = logging.getLogger(__name__)
 
@@ -115,8 +115,17 @@ def register_kills_subcommand(leaderboard_group: app_commands.Group, channel_che
         async with pool.acquire() as conn:
             escaped_column = escape_sql_identifier(kill_column)
             
-            # Get pathfinder player IDs from file if needed
+            # Get pathfinder player IDs from cache if needed
             pathfinder_ids = get_pathfinder_player_ids() if only_pathfinders else set()
+            
+            # If only_pathfinders is True but no IDs available, return error
+            if only_pathfinders and not pathfinder_ids:
+                await interaction.followup.send(
+                    "❌ Unable to load Pathfinder player IDs. Cannot filter by Pathfinders. Please try again later."
+                )
+                log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs={"kill_type": kill_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
+                return
+            
             pathfinder_ids_list = list(pathfinder_ids) if pathfinder_ids else []
             
             # Build query components conditionally
@@ -138,18 +147,12 @@ def register_kills_subcommand(leaderboard_group: app_commands.Group, channel_che
             # Build pathfinder filter WHERE clause
             pathfinder_where = ""
             if only_pathfinders:
-                if pathfinder_ids:
-                    if time_where:
-                        pathfinder_where = f"AND (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
-                    else:
-                        pathfinder_where = f"WHERE (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
-                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+                if time_where:
+                    pathfinder_where = f"AND pms.player_id = ANY(${param_num}::text[])"
                 else:
-                    if time_where:
-                        pathfinder_where = f"AND (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1})"
-                    else:
-                        pathfinder_where = f"WHERE (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1})"
-                    query_params.extend(["PFr |%", "PF |%"])
+                    pathfinder_where = f"WHERE pms.player_id = ANY(${param_num}::text[])"
+                query_params.append(pathfinder_ids_list)
+                param_num += 1
             
             # Combine WHERE clauses
             # Build the WHERE clause properly - start with WHERE if no conditions exist yet
