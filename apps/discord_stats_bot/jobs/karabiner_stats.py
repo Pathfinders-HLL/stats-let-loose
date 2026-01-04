@@ -11,6 +11,7 @@ from discord.ext import tasks
 
 from apps.discord_stats_bot.common.shared import get_readonly_db_pool, escape_sql_identifier
 from apps.discord_stats_bot.common.weapon_autocomplete import get_weapon_mapping
+from apps.discord_stats_bot.common.pathfinder_player_cache import get_pathfinder_player_ids
 from apps.discord_stats_bot.config import get_bot_config
 
 logger = logging.getLogger(__name__)
@@ -50,10 +51,20 @@ async def post_karabiner_stats():
             logger.error("Could not find Karabiner 98k in weapon mapping")
             return
         
+        # Get pathfinder player IDs from cache
+        pathfinder_ids = get_pathfinder_player_ids()
+        
+        # If cache is empty, log warning and skip this run
+        if not pathfinder_ids:
+            logger.warning("Pathfinder player IDs cache is empty. Skipping Karabiner stats posting.")
+            return
+        
+        pathfinder_ids_list = list(pathfinder_ids)
+        
         # Calculate 7 days ago
         seven_days_ago = datetime.utcnow() - timedelta(days=7)
         
-        # Query database for top players
+        # Query database for top players (Pathfinders only)
         pool = await get_readonly_db_pool()
         async with pool.acquire() as conn:
             escaped_column = escape_sql_identifier(column_name)
@@ -66,6 +77,7 @@ async def post_karabiner_stats():
                     INNER JOIN pathfinder_stats.match_history mh
                         ON pks.match_id = mh.match_id
                     WHERE mh.start_time >= $1
+                        AND pks.player_id = ANY($2::text[])
                     GROUP BY pks.player_id
                     HAVING SUM(pks.{escaped_column}) > 0
                 ),
@@ -76,6 +88,7 @@ async def post_karabiner_stats():
                     FROM pathfinder_stats.player_match_stats pms
                     INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
                     INNER JOIN kill_stats ks ON pms.player_id = ks.player_id
+                    WHERE pms.player_id = ANY($2::text[])
                     ORDER BY pms.player_id, mh.start_time DESC
                 )
                 SELECT 
@@ -88,7 +101,7 @@ async def post_karabiner_stats():
                 LIMIT 25
             """
             
-            results = await conn.fetch(query, seven_days_ago)
+            results = await conn.fetch(query, seven_days_ago, pathfinder_ids_list)
 
         # Get current timestamp for the update (UTC, Discord format)
         now_utc = datetime.now(timezone.utc)
@@ -97,13 +110,13 @@ async def post_karabiner_stats():
 
         if not results:
             message_content = (
-                "## Top Karabiner 98k Kills (Last 7 Days)\n"
+                "## Top Pathfinder Karabiner 98k Kills (Last 7 Days)\n"
                 "No kills found in the last 7 days.\n"
                 f"*Last updated: {discord_time}*"
             )
         else:
             # Format the message
-            message_lines = ["## Top Karabiner 98k Kills (Last 7 Days)\n"]
+            message_lines = ["## Top Pathfinder Karabiner 98k Kills (Last 7 Days)\n"]
 
             for rank, row in enumerate(results, 1):
                 display_name = row['player_name'] if row['player_name'] else row['player_id']
