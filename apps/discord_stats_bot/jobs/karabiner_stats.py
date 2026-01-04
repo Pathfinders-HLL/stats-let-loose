@@ -9,7 +9,7 @@ from typing import Optional
 import discord
 from discord.ext import tasks
 
-from apps.discord_stats_bot.common.shared import get_readonly_db_pool, escape_sql_identifier
+from apps.discord_stats_bot.common.shared import get_readonly_db_pool, escape_sql_identifier, get_pathfinder_player_ids
 from apps.discord_stats_bot.common.weapon_autocomplete import get_weapon_mapping
 from apps.discord_stats_bot.config import get_bot_config
 
@@ -53,10 +53,29 @@ async def post_karabiner_stats():
         # Calculate 7 days ago
         seven_days_ago = datetime.utcnow() - timedelta(days=7)
         
+        # Get pathfinder player IDs (always filter to pathfinders only)
+        pathfinder_ids = get_pathfinder_player_ids()
+        pathfinder_ids_list = list(pathfinder_ids) if pathfinder_ids else []
+        
         # Query database for top players
         pool = await get_readonly_db_pool()
         async with pool.acquire() as conn:
             escaped_column = escape_sql_identifier(column_name)
+            
+            # Build pathfinder filter WHERE clause
+            query_params = [seven_days_ago]
+            
+            if pathfinder_ids:
+                pathfinder_where = f"AND (pks.player_name LIKE $2 OR pks.player_name LIKE $3 OR pks.player_id = ANY($4::text[]))"
+                query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+                recent_names_where = f"AND (pms.player_name LIKE $5 OR pms.player_name LIKE $6 OR pms.player_id = ANY($7::text[]))"
+                query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+            else:
+                pathfinder_where = f"AND (pks.player_name LIKE $2 OR pks.player_name LIKE $3)"
+                query_params.extend(["PFr |%", "PF |%"])
+                recent_names_where = f"AND (pms.player_name LIKE $4 OR pms.player_name LIKE $5)"
+                query_params.extend(["PFr |%", "PF |%"])
+            
             query = f"""
                 WITH kill_stats AS (
                     SELECT 
@@ -66,6 +85,7 @@ async def post_karabiner_stats():
                     INNER JOIN pathfinder_stats.match_history mh
                         ON pks.match_id = mh.match_id
                     WHERE mh.start_time >= $1
+                        {pathfinder_where}
                     GROUP BY pks.player_id
                     HAVING SUM(pks.{escaped_column}) > 0
                 ),
@@ -76,6 +96,8 @@ async def post_karabiner_stats():
                     FROM pathfinder_stats.player_match_stats pms
                     INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
                     INNER JOIN kill_stats ks ON pms.player_id = ks.player_id
+                    WHERE mh.start_time >= $1
+                        {recent_names_where}
                     ORDER BY pms.player_id, mh.start_time DESC
                 )
                 SELECT 
@@ -88,7 +110,7 @@ async def post_karabiner_stats():
                 LIMIT 25
             """
             
-            results = await conn.fetch(query, seven_days_ago)
+            results = await conn.fetch(query, *query_params)
 
         # Get current timestamp for the update (UTC, Discord format)
         now_utc = datetime.now(timezone.utc)
@@ -97,13 +119,13 @@ async def post_karabiner_stats():
 
         if not results:
             message_content = (
-                "## Top Karabiner 98k Kills (Last 7 Days)\n"
+                "## Top PathfinderKarabiner 98k Kills (Last 7 Days)\n"
                 "No kills found in the last 7 days.\n"
                 f"*Last updated: {discord_time}*"
             )
         else:
             # Format the message
-            message_lines = ["## Top Karabiner 98k Kills (Last 7 Days)\n"]
+            message_lines = ["## Top PathfinderKarabiner 98k Kills (Last 7 Days)\n"]
 
             for rank, row in enumerate(results, 1):
                 display_name = row['player_name'] if row['player_name'] else row['player_id']
