@@ -119,13 +119,13 @@ async def post_karabiner_stats():
 
         if not results:
             message_content = (
-                "## Top PathfinderKarabiner 98k Kills (Last 7 Days)\n"
+                "## Top Pathfinder Karabiner 98k Kills (Last 7 Days)\n"
                 "No kills found in the last 7 days.\n"
                 f"*Last updated: {discord_time}*"
             )
         else:
             # Format the message
-            message_lines = ["## Top PathfinderKarabiner 98k Kills (Last 7 Days)\n"]
+            message_lines = ["## Top Pathfinder Karabiner 98k Kills (Last 7 Days)\n"]
 
             for rank, row in enumerate(results, 1):
                 display_name = row['player_name'] if row['player_name'] else row['player_id']
