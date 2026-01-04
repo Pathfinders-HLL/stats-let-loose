@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 # Connection pool for async database operations
 _db_pool: Optional[asyncpg.Pool] = None
 
+# Cache for pathfinder player IDs loaded from file
+_pathfinder_player_ids: Optional[Set[str]] = None
 
 
 async def get_readonly_db_pool() -> asyncpg.Pool:
@@ -227,6 +229,41 @@ def validate_choice_parameter(
         display_list = display_choices or list(valid_choices)
         raise ValueError(f"Invalid {parameter_name}: {value}. Valid types: {', '.join(display_list)}")
     return normalized_value
+
+
+def get_pathfinder_player_ids() -> Set[str]:
+    """Load player IDs from pathfinder_player_ids.txt (cached after first load)."""
+    global _pathfinder_player_ids
+    
+    # Return cached value if already loaded
+    if _pathfinder_player_ids is not None:
+        return _pathfinder_player_ids
+    
+    common_dir = Path(__file__).parent
+    file_path = common_dir / "pathfinder_player_ids.txt"
+    player_ids = set[str]()
+    
+    if not file_path.exists():
+        logger.debug(f"Player IDs file not found at {file_path}")
+        _pathfinder_player_ids = player_ids
+        return player_ids
+    
+    # Load player IDs from file
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # Skip empty lines and comments
+                if line and not line.startswith('#'):
+                    player_ids.add(line)
+        
+        _pathfinder_player_ids = player_ids
+        logger.info(f"Loaded {len(player_ids)} player IDs")
+        return player_ids
+    except Exception as e:
+        logger.error(f"Error loading player IDs: {e}", exc_info=True)
+        _pathfinder_player_ids = set[str]()
+        return _pathfinder_player_ids
 
 
 def create_time_filter_params(over_last_days: int) -> Tuple[str, list, str]:

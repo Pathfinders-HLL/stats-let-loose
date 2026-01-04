@@ -13,9 +13,9 @@ from apps.discord_stats_bot.common.shared import (
     get_readonly_db_pool,
     log_command_completion,
     escape_sql_identifier,
+    get_pathfinder_player_ids,
     command_wrapper
 )
-from apps.discord_stats_bot.common.pathfinder_player_cache import get_pathfinder_player_ids
 from apps.discord_stats_bot.common.weapon_autocomplete import weapon_category_autocomplete, get_weapon_mapping
 
 logger = logging.getLogger(__name__)
@@ -60,17 +60,8 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
             # Build query with safe identifier escaping
             escaped_column = escape_sql_identifier(column_name)
             
-            # Get pathfinder player IDs from cache if needed
+            # Get pathfinder player IDs from file if needed
             pathfinder_ids = get_pathfinder_player_ids() if only_pathfinders else set()
-            
-            # If only_pathfinders is True but no IDs available, return error
-            if only_pathfinders and not pathfinder_ids:
-                await interaction.followup.send(
-                    "❌ Unable to load Pathfinder player IDs. Cannot filter by Pathfinders. Please try again later."
-                )
-                log_command_completion("leaderboard alltime", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "only_pathfinders": only_pathfinders})
-                return
-            
             pathfinder_ids_list = list(pathfinder_ids) if pathfinder_ids else []
             
             # Build WHERE clause for kill_stats CTE
@@ -79,15 +70,24 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
             query_params = []
             
             if only_pathfinders:
-                kill_stats_where = f"WHERE pks.player_id = ANY(${param_num}::text[])"
-                query_params.append(pathfinder_ids_list)
-                param_num += 1
+                if pathfinder_ids:
+                    kill_stats_where = f"WHERE (pks.player_name LIKE ${param_num} OR pks.player_name LIKE ${param_num + 1} OR pks.player_id = ANY(${param_num + 2}::text[]))"
+                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+                    param_num += 3
+                else:
+                    kill_stats_where = f"WHERE (pks.player_name LIKE ${param_num} OR pks.player_name LIKE ${param_num + 1})"
+                    query_params.extend(["PFr |%", "PF |%"])
+                    param_num += 2
             
             # Build WHERE clause for LATERAL join
             lateral_where = ""
             if only_pathfinders:
-                lateral_where = f"AND pms.player_id = ANY(${param_num}::text[])"
-                query_params.append(pathfinder_ids_list)
+                if pathfinder_ids:
+                    lateral_where = f"AND (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
+                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+                else:
+                    lateral_where = f"AND (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1})"
+                    query_params.extend(["PFr |%", "PF |%"])
             
             # Build the query using conditional WHERE clauses
             query = f"""
@@ -128,7 +128,10 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
             # Build log message
             log_msg = f"Querying all-time top kills for weapon: {weapon_category_lower} (column: {column_name})"
             if only_pathfinders:
-                log_msg += f" (Pathfinders only, {len(pathfinder_ids)} IDs from cache)"
+                if pathfinder_ids:
+                    log_msg += f" (Pathfinders only, {len(pathfinder_ids)} IDs from file)"
+                else:
+                    log_msg += " (Pathfinders only)"
             logger.info(log_msg)
             
             results = await conn.fetch(query, *query_params)
