@@ -18,6 +18,23 @@
           }
         ],
         "metrics_collection_interval": 60
+      },
+      "cpu": {
+        "measurement": [
+          {
+            "name": "cpu_usage_idle",
+            "rename": "CPUIdle"
+          },
+          {
+            "name": "cpu_usage_user",
+            "rename": "CPUUser"
+          },
+          {
+            "name": "cpu_usage_system",
+            "rename": "CPUSystem"
+          }
+        ],
+        "metrics_collection_interval": 60
       }
     }
   }
