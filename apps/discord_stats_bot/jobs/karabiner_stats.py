@@ -112,7 +112,7 @@ async def post_karabiner_stats():
                 FROM kill_stats ks
                 LEFT JOIN recent_names rn ON ks.player_id = rn.player_id
                 ORDER BY ks.total_kills DESC
-                LIMIT 25
+                LIMIT 10
             """
             
             results_7day = await conn.fetch(query_7day, *query_params_7day)
