@@ -51,7 +51,9 @@ async def post_karabiner_stats():
             return
         
         # Calculate 7 days ago and start of today
-        now_utc = datetime.now(timezone.utc)
+        # Use naive datetimes for PostgreSQL TIMESTAMP columns
+        now_utc_aware = datetime.now(timezone.utc)
+        now_utc = now_utc_aware.replace(tzinfo=None)
         seven_days_ago = now_utc - timedelta(days=7)
         start_of_day = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
         
@@ -174,7 +176,7 @@ async def post_karabiner_stats():
             results_daily = await conn.fetch(query_daily, *query_params_daily)
 
         # Get current timestamp for the update (UTC, Discord format)
-        unix_timestamp = int(now_utc.timestamp())
+        unix_timestamp = int(now_utc_aware.timestamp())
         discord_time = f"<t:{unix_timestamp}:F>"
 
         message_lines = []
