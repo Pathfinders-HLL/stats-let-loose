@@ -50,12 +50,12 @@ async def post_karabiner_stats():
             logger.error("Could not find Karabiner 98k in weapon mapping")
             return
         
-        # Calculate 7 days ago and start of today
+        # Calculate 7 days ago and 24 hours ago
         # Use naive datetimes for PostgreSQL TIMESTAMP columns
         now_utc_aware = datetime.now(timezone.utc)
         now_utc = now_utc_aware.replace(tzinfo=None)
         seven_days_ago = now_utc - timedelta(days=7)
-        start_of_day = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+        twenty_four_hours_ago = now_utc - timedelta(hours=24)
         
         # Get pathfinder player IDs (always filter to pathfinders only)
         pathfinder_ids = get_pathfinder_player_ids()
@@ -117,8 +117,8 @@ async def post_karabiner_stats():
             
             results_7day = await conn.fetch(query_7day, *query_params_7day)
             
-            # Query for top 10 players of the day with match details
-            query_params_daily = [start_of_day]
+            # Query for top 10 players from past 24 hours with match details
+            query_params_daily = [twenty_four_hours_ago]
             
             if pathfinder_ids:
                 daily_pathfinder_where = f"AND (pks.player_name LIKE $2 OR pks.player_name LIKE $3 OR pks.player_id = ANY($4::text[]))"
@@ -207,7 +207,7 @@ async def post_karabiner_stats():
         
         # Format daily top 10 with match details
         if results_daily:
-            message_lines.append("\n### Top 10 Players Today (Karabiner 98k)\n")
+            message_lines.append("\n### Top 10 Players Today\n")
             message_lines.append("```")
             message_lines.append(f"{'#':<4} {'Player':<25} {'Kills':>7} {'Deaths':>7} {'K/M':>7} {'K/D':>7} {'Map':<20}")
             message_lines.append("-" * 75)
@@ -233,8 +233,8 @@ async def post_karabiner_stats():
 
             message_lines.append("```")
         else:
-            message_lines.append("\n### Top 10 Players Today (Karabiner 98k)\n")
-            message_lines.append("No matches found for today.\n")
+            message_lines.append("\n### Top 10 Players Today\n")
+            message_lines.append("No matches found in the past 24 hours.\n")
         
         message_lines.append(f"\n*Last updated: {discord_time}*")
         message_content = "\n".join(message_lines)
