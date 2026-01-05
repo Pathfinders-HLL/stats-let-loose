@@ -105,7 +105,7 @@ async def find_player_by_id_or_name(conn: asyncpg.Connection, player: str) -> Tu
     find_player_query = """
         SELECT DISTINCT player_id
         FROM pathfinder_stats.player_match_stats
-        WHERE (player_name = $1 OR LOWER(player_name) = LOWER($1))
+        WHERE LOWER(player_name) = LOWER($1)
         LIMIT 1
     """
     found_player_id = await conn.fetchval(find_player_query, player)
