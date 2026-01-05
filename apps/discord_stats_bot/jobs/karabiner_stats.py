@@ -50,8 +50,10 @@ async def post_karabiner_stats():
             logger.error("Could not find Karabiner 98k in weapon mapping")
             return
         
-        # Calculate 7 days ago
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        # Calculate 7 days ago and start of today
+        now_utc = datetime.now(timezone.utc)
+        seven_days_ago = now_utc - timedelta(days=7)
+        start_of_day = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
         
         # Get pathfinder player IDs (always filter to pathfinders only)
         pathfinder_ids = get_pathfinder_player_ids()
@@ -62,21 +64,22 @@ async def post_karabiner_stats():
         async with pool.acquire() as conn:
             escaped_column = escape_sql_identifier(column_name)
             
-            # Build pathfinder filter WHERE clause
-            query_params = [seven_days_ago]
+            # Build pathfinder filter WHERE clause for 7-day query
+            query_params_7day = [seven_days_ago]
             
             if pathfinder_ids:
                 pathfinder_where = f"AND (pks.player_name LIKE $2 OR pks.player_name LIKE $3 OR pks.player_id = ANY($4::text[]))"
-                query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+                query_params_7day.extend(["PFr |%", "PF |%", pathfinder_ids_list])
                 recent_names_where = f"AND (pms.player_name LIKE $5 OR pms.player_name LIKE $6 OR pms.player_id = ANY($7::text[]))"
-                query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+                query_params_7day.extend(["PFr |%", "PF |%", pathfinder_ids_list])
             else:
                 pathfinder_where = f"AND (pks.player_name LIKE $2 OR pks.player_name LIKE $3)"
-                query_params.extend(["PFr |%", "PF |%"])
+                query_params_7day.extend(["PFr |%", "PF |%"])
                 recent_names_where = f"AND (pms.player_name LIKE $4 OR pms.player_name LIKE $5)"
-                query_params.extend(["PFr |%", "PF |%"])
+                query_params_7day.extend(["PFr |%", "PF |%"])
             
-            query = f"""
+            # Query for 7-day aggregated stats
+            query_7day = f"""
                 WITH kill_stats AS (
                     SELECT 
                         pks.player_id,
@@ -110,31 +113,129 @@ async def post_karabiner_stats():
                 LIMIT 25
             """
             
-            results = await conn.fetch(query, *query_params)
+            results_7day = await conn.fetch(query_7day, *query_params_7day)
+            
+            # Query for top 10 players of the day with match details
+            query_params_daily = [start_of_day]
+            
+            if pathfinder_ids:
+                daily_pathfinder_where = f"AND (pks.player_name LIKE $2 OR pks.player_name LIKE $3 OR pks.player_id = ANY($4::text[]))"
+                query_params_daily.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+            else:
+                daily_pathfinder_where = f"AND (pks.player_name LIKE $2 OR pks.player_name LIKE $3)"
+                query_params_daily.extend(["PFr |%", "PF |%"])
+            
+            query_daily = f"""
+                WITH daily_kills AS (
+                    SELECT 
+                        pks.player_id,
+                        pks.match_id,
+                        pks.{escaped_column} as karabiner_kills
+                    FROM pathfinder_stats.player_kill_stats pks
+                    INNER JOIN pathfinder_stats.match_history mh
+                        ON pks.match_id = mh.match_id
+                    WHERE mh.start_time >= $1
+                        AND pks.{escaped_column} > 0
+                        {daily_pathfinder_where}
+                ),
+                best_match_per_player AS (
+                    SELECT DISTINCT ON (dk.player_id)
+                        dk.player_id,
+                        dk.match_id,
+                        dk.karabiner_kills
+                    FROM daily_kills dk
+                    ORDER BY dk.player_id, dk.karabiner_kills DESC
+                ),
+                top_10_players AS (
+                    SELECT 
+                        bmp.player_id,
+                        bmp.match_id,
+                        bmp.karabiner_kills
+                    FROM best_match_per_player bmp
+                    ORDER BY bmp.karabiner_kills DESC
+                    LIMIT 10
+                )
+                SELECT 
+                    t10.player_id,
+                    COALESCE(pms.player_name, t10.player_id) as player_name,
+                    pms.total_kills,
+                    pms.total_deaths,
+                    pms.kills_per_minute as kpm,
+                    pms.kill_death_ratio as kdr,
+                    mh.map_name,
+                    t10.karabiner_kills
+                FROM top_10_players t10
+                INNER JOIN pathfinder_stats.player_match_stats pms 
+                    ON t10.player_id = pms.player_id AND t10.match_id = pms.match_id
+                INNER JOIN pathfinder_stats.match_history mh ON t10.match_id = mh.match_id
+                ORDER BY t10.karabiner_kills DESC
+            """
+            
+            results_daily = await conn.fetch(query_daily, *query_params_daily)
 
         # Get current timestamp for the update (UTC, Discord format)
-        now_utc = datetime.now(timezone.utc)
         unix_timestamp = int(now_utc.timestamp())
         discord_time = f"<t:{unix_timestamp}:F>"
 
-        if not results:
-            message_content = (
-                "## Top Pathfinder Karabiner 98k Kills (Last 7 Days)\n"
-                "No kills found in the last 7 days.\n"
-                f"*Last updated: {discord_time}*"
-            )
+        message_lines = []
+        
+        # Format 7-day aggregated stats
+        if not results_7day:
+            message_lines.append("### Top Pathfinder Karabiner 98k Kills (Last 7 Days)\n")
+            message_lines.append("No kills found in the last 7 days.\n")
         else:
-            # Format the message
-            message_lines = ["## Top Pathfinder Karabiner 98k Kills (Last 7 Days)\n"]
+            message_lines.append("### Top Pathfinder Karabiner 98k Kills (Last 7 Days)\n")
+            message_lines.append("```")
+            message_lines.append(f"{'#':<4} {'Player':<30} {'Kills':>8}")
+            message_lines.append("-" * 44)
 
-            for rank, row in enumerate(results, 1):
+            for rank, row in enumerate(results_7day, 1):
                 display_name = row['player_name'] if row['player_name'] else row['player_id']
+                # Truncate name if too long
+                if len(display_name) > 28:
+                    display_name = display_name[:25] + "..."
+                
+                kills = row['total_kills']
+                
                 message_lines.append(
-                    f"{rank}. **{display_name}** - {row['total_kills']:,} kills"
+                    f"{rank:<4} {display_name:<30} {kills:>8,}"
                 )
 
-            message_lines.append(f"\n*Last updated: {discord_time}*")
-            message_content = "\n".join(message_lines)
+            message_lines.append("```")
+        
+        # Format daily top 10 with match details
+        if results_daily:
+            message_lines.append("\n### Top 10 Players Today (Karabiner 98k)\n")
+            message_lines.append("```")
+            message_lines.append(f"{'#':<4} {'Player':<25} {'Kills':>7} {'Deaths':>7} {'K/M':>7} {'K/D':>7} {'Map':<20}")
+            message_lines.append("-" * 75)
+
+            for rank, row in enumerate(results_daily, 1):
+                display_name = row['player_name'] if row['player_name'] else row['player_id']
+                # Truncate name if too long
+                if len(display_name) > 23:
+                    display_name = display_name[:20] + "..."
+                
+                kills = row['total_kills']
+                deaths = row['total_deaths']
+                kpm = float(row['kpm']) if row['kpm'] else 0.0
+                kdr = float(row['kdr']) if row['kdr'] else 0.0
+                map_name = row['map_name'] if row['map_name'] else 'Unknown'
+                # Truncate map name if too long
+                if len(map_name) > 18:
+                    map_name = map_name[:15] + "..."
+                
+                message_lines.append(
+                    f"{rank:<4} {display_name:<25} {kills:>7} {deaths:>7} {kpm:>6.2f} {kdr:>6.2f} {map_name:<20}"
+                )
+
+            message_lines.append("```")
+        else:
+            message_lines.append("\n### Top 10 Players Today (Karabiner 98k)\n")
+            message_lines.append("No matches found for today.\n")
+        
+        message_lines.append(f"\n*Last updated: {discord_time}*")
+        message_content = "\n".join(message_lines)
 
         # Try to find and edit the last message sent by the bot in this channel
         try:
