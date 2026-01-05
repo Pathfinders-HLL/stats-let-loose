@@ -72,7 +72,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
 
         # If player not provided, try to get stored one from cache
         if not player:
-            stored_player_id = get_player_id(interaction.user.id)
+            stored_player_id = await get_player_id(interaction.user.id)
             if stored_player_id:
                 player = stored_player_id
             else:

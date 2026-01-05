@@ -66,7 +66,7 @@ def setup_profile_command(tree: app_commands.CommandTree, channel_check=None) ->
                         return
                     
                     # Store the mapping in cache
-                    set_player_id(interaction.user.id, player_id)
+                    await set_player_id(interaction.user.id, player_id)
                     
                     display_name = found_player_name if found_player_name else player_id
                     await interaction.followup.send(
@@ -127,7 +127,7 @@ def setup_profile_command(tree: app_commands.CommandTree, channel_check=None) ->
                 return
             
             # Clear the stored player ID
-            clear_player_id(interaction.user.id)
+            await clear_player_id(interaction.user.id)
             
             await interaction.response.send_message(f"✅ Your player ID has been cleared. Use `/profile setid` to set a new one.", ephemeral=True)
             log_command_completion("profile clearid", start_time, success=True, interaction=interaction, kwargs={})

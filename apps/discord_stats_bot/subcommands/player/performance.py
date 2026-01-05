@@ -59,7 +59,7 @@ def register_performance_subcommand(player_group: app_commands.Group, channel_ch
         command_start_time = time.time()
 
         if not player:
-            stored_player_id = get_player_id(interaction.user.id)
+            stored_player_id = await get_player_id(interaction.user.id)
             if stored_player_id:
                 player = stored_player_id
             else:
