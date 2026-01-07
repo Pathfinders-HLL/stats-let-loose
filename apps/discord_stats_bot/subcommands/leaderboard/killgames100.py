@@ -50,10 +50,10 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
             
             if only_pathfinders:
                 if pathfinder_ids:
-                    pathfinder_where = f"AND (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
+                    pathfinder_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
                     query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
                 else:
-                    pathfinder_where = f"AND (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1})"
+                    pathfinder_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
                     query_params.extend(["PFr |%", "PF |%"])
             
             # Build query to find players with most 100+ kill games

@@ -140,15 +140,15 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
             if only_pathfinders:
                 if pathfinder_ids:
                     if time_where:
-                        pathfinder_where = f"AND (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
+                        pathfinder_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
                     else:
-                        pathfinder_where = f"WHERE (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
+                        pathfinder_where = f"WHERE (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
                     query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
                 else:
                     if time_where:
-                        pathfinder_where = f"AND (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1})"
+                        pathfinder_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
                     else:
-                        pathfinder_where = f"WHERE (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1})"
+                        pathfinder_where = f"WHERE (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
                     query_params.extend(["PFr |%", "PF |%"])
             
             # Combine WHERE clauses

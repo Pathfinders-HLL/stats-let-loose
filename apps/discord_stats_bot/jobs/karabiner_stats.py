@@ -66,14 +66,14 @@ async def post_karabiner_stats():
             query_params = [seven_days_ago]
             
             if pathfinder_ids:
-                pathfinder_where = f"AND (pks.player_name LIKE $2 OR pks.player_name LIKE $3 OR pks.player_id = ANY($4::text[]))"
+                pathfinder_where = f"AND (pks.player_name ILIKE $2 OR pks.player_name ILIKE $3 OR pks.player_id = ANY($4::text[]))"
                 query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
-                recent_names_where = f"AND (pms.player_name LIKE $5 OR pms.player_name LIKE $6 OR pms.player_id = ANY($7::text[]))"
+                recent_names_where = f"AND (pms.player_name ILIKE $5 OR pms.player_name ILIKE $6 OR pms.player_id = ANY($7::text[]))"
                 query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
             else:
-                pathfinder_where = f"AND (pks.player_name LIKE $2 OR pks.player_name LIKE $3)"
+                pathfinder_where = f"AND (pks.player_name ILIKE $2 OR pks.player_name ILIKE $3)"
                 query_params.extend(["PFr |%", "PF |%"])
-                recent_names_where = f"AND (pms.player_name LIKE $4 OR pms.player_name LIKE $5)"
+                recent_names_where = f"AND (pms.player_name ILIKE $4 OR pms.player_name ILIKE $5)"
                 query_params.extend(["PFr |%", "PF |%"])
             
             query = f"""

@@ -71,11 +71,11 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
             
             if only_pathfinders:
                 if pathfinder_ids:
-                    kill_stats_where = f"WHERE (pks.player_name LIKE ${param_num} OR pks.player_name LIKE ${param_num + 1} OR pks.player_id = ANY(${param_num + 2}::text[]))"
+                    kill_stats_where = f"WHERE (pks.player_name ILIKE ${param_num} OR pks.player_name ILIKE ${param_num + 1} OR pks.player_id = ANY(${param_num + 2}::text[]))"
                     query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
                     param_num += 3
                 else:
-                    kill_stats_where = f"WHERE (pks.player_name LIKE ${param_num} OR pks.player_name LIKE ${param_num + 1})"
+                    kill_stats_where = f"WHERE (pks.player_name ILIKE ${param_num} OR pks.player_name ILIKE ${param_num + 1})"
                     query_params.extend(["PFr |%", "PF |%"])
                     param_num += 2
             
@@ -83,10 +83,10 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
             lateral_where = ""
             if only_pathfinders:
                 if pathfinder_ids:
-                    lateral_where = f"AND (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
+                    lateral_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
                     query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
                 else:
-                    lateral_where = f"AND (pms.player_name LIKE ${param_num} OR pms.player_name LIKE ${param_num + 1})"
+                    lateral_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
                     query_params.extend(["PFr |%", "PF |%"])
             
             # Build the query using conditional WHERE clauses
