@@ -129,9 +129,10 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                 aggregate_function = "AVG"
                 stat_label = "Average"
             
-            # Build HAVING clause - exclude artillery/SPA kills for streak stats
+            # Build HAVING clause - require at least 10 matches and exclude players with artillery/SPA kills (for streak stats)
             having_clause = "HAVING COUNT(*) >= 10"
-            having_clause += " AND SUM(pms.artillery_kills) = 0 AND SUM(pms.spa_kills) = 0"
+            if stat_type_lower in {"kill_streak", "death_streak"}:
+                having_clause += " AND SUM(pms.artillery_kills) = 0 AND SUM(pms.spa_kills) = 0"
             
             # Get pathfinder player IDs from file if needed
             pathfinder_ids = get_pathfinder_player_ids() if only_pathfinders else set()
@@ -162,12 +163,14 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                     else:
                         pathfinder_where = f"WHERE (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
                     query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+                    param_num += 3  # Increment param_num after adding parameters
                 else:
                     if time_where:
                         pathfinder_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
                     else:
                         pathfinder_where = f"WHERE (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
                     query_params.extend(["PFr |%", "PF |%"])
+                    param_num += 2  # Increment param_num after adding parameters
             
             # Combine WHERE clauses properly - handle the time_played filter
             where_clauses = []
@@ -192,7 +195,7 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
             # Build pathfinder filter for LATERAL JOIN (to ensure we get pathfinder names)
             # This ensures the most recent player name also matches pathfinder criteria
             lateral_pathfinder_filter = ""
-            lateral_param_num = param_num  # Track parameter numbers for lateral join
+            lateral_param_num = param_num  # Track parameter numbers for lateral join (after main query params)
             if only_pathfinders:
                 if pathfinder_ids:
                     lateral_pathfinder_filter = f"AND (pms.player_name ILIKE ${lateral_param_num} OR pms.player_name ILIKE ${lateral_param_num + 1} OR pms.player_id = ANY(${lateral_param_num + 2}::text[]))"

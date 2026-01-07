@@ -144,12 +144,14 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
                     else:
                         pathfinder_where = f"WHERE (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
                     query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+                    param_num += 3
                 else:
                     if time_where:
                         pathfinder_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
                     else:
                         pathfinder_where = f"WHERE (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
                     query_params.extend(["PFr |%", "PF |%"])
+                    param_num += 2
             
             # Combine WHERE clauses
             # Build the WHERE clause properly - start with WHERE if no conditions exist yet
@@ -171,6 +173,16 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
                 where_clauses.append(f"WHERE {death_filter}")
             
             ranked_matches_where = " ".join(where_clauses)
+            
+            # Build LATERAL join pathfinder filter (for getting player names)
+            lateral_where = ""
+            if only_pathfinders:
+                if pathfinder_ids:
+                    lateral_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
+                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+                else:
+                    lateral_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
+                    query_params.extend(["PFr |%", "PF |%"])
             
             # Build query to get top players by sum of deaths from their top 25 matches
             # This uses a window function to rank matches per player, then sums the top 25
@@ -209,6 +221,7 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
                         FROM pathfinder_stats.player_match_stats pms
                         INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
                         WHERE pms.player_id = tp.player_id
+                            {lateral_where}
                         ORDER BY mh.start_time DESC
                         LIMIT 1
                     ) rn ON TRUE

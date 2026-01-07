@@ -52,8 +52,20 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
                 if pathfinder_ids:
                     pathfinder_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
                     query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+                    param_num += 3
                 else:
                     pathfinder_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
+                    query_params.extend(["PFr |%", "PF |%"])
+                    param_num += 2
+            
+            # Build LATERAL join pathfinder filter (for getting player names)
+            lateral_where = ""
+            if only_pathfinders:
+                if pathfinder_ids:
+                    lateral_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
+                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+                else:
+                    lateral_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
                     query_params.extend(["PFr |%", "PF |%"])
             
             # Build query to find players with most 100+ kill games
@@ -85,6 +97,7 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
                     FROM pathfinder_stats.player_match_stats pms
                     INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
                     WHERE pms.player_id = thkg.player_id
+                        {lateral_where}
                     ORDER BY mh.start_time DESC
                     LIMIT 1
                 ) rn ON TRUE
