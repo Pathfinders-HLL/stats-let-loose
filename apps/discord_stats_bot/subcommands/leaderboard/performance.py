@@ -133,7 +133,7 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
             # Build HAVING clause - require at least 10 matches for non-streak stats
             # For streak stats, only exclude players with artillery/SPA kills (no minimum match requirement)
             if stat_type_lower in {"kill_streak", "death_streak"}:
-                having_clause = "HAVING SUM(pms.artillery_kills) <= 5 AND SUM(pms.spa_kills) <= 5"
+                having_clause = ""
             else:
                 having_clause = "HAVING COUNT(*) >= 10"
             
@@ -192,6 +192,12 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                 where_clauses.append(f"AND {time_played_filter}")
             else:
                 where_clauses.append(f"WHERE {time_played_filter}")
+            
+            # Add artillery/SPA kills filter per match (for streak stats only)so we filter matches instead of players
+            # so a player with a high streak in one match won't be excluded if they have other matchs with high artillery/SPA kill
+            if stat_type_lower in {"kill_streak", "death_streak"}:
+                artillery_spa_filter = "AND pms.artillery_kills <= 5 AND pms.spa_kills <= 5"
+                where_clauses.append(artillery_spa_filter)
             
             player_stats_where = " ".join(where_clauses)
             
