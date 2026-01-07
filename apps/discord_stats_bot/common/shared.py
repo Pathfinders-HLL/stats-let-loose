@@ -326,7 +326,8 @@ def format_sql_query_with_params(query: str, params: list) -> str:
                 # Handle array parameters (e.g., text[])
                 if all(isinstance(x, str) for x in param_value):
                     escaped_items = [item.replace("'", "''") for item in param_value]
-                    formatted_value = f"ARRAY[{', '.join(f\"'{item}'\" for item in escaped_items)}]"
+                    quoted_items = [f"'{item}'" for item in escaped_items]
+                    formatted_value = f"ARRAY[{', '.join(quoted_items)}]"
                 else:
                     formatted_value = f"ARRAY[{', '.join(str(x) for x in param_value)}]"
             else:
