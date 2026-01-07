@@ -186,12 +186,14 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                     pathfinder_where = pathfinder_where.replace("WHERE", "AND", 1)
                 where_clauses.append(pathfinder_where)
             
-            # Add the time_played filter
-            time_played_filter = "pms.time_played >= 3600"
-            if where_clauses:
-                where_clauses.append(f"AND {time_played_filter}")
-            else:
-                where_clauses.append(f"WHERE {time_played_filter}")
+            # Add the time_played filter (only for non-streak stats)
+            # Streak stats don't require a minimum time played
+            if stat_type_lower not in {"kill_streak", "death_streak"}:
+                time_played_filter = "pms.time_played >= 3600"
+                if where_clauses:
+                    where_clauses.append(f"AND {time_played_filter}")
+                else:
+                    where_clauses.append(f"WHERE {time_played_filter}")
             
             # Add artillery/SPA kills filter per match (for streak stats only)so we filter matches instead of players
             # so a player with a high streak in one match won't be excluded if they have other matchs with high artillery/SPA kill
@@ -214,6 +216,11 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                     lateral_pathfinder_filter = f"AND (pms.player_name ILIKE ${lateral_param_num} OR pms.player_name ILIKE ${lateral_param_num + 1})"
                     query_params.extend(["PFr |%", "PF |%"])
                     param_num += 2  # Update param_num after adding parameters
+            
+            # Build time_played filter for LATERAL JOIN (only for non-streak stats)
+            lateral_time_played_filter = ""
+            if stat_type_lower not in {"kill_streak", "death_streak"}:
+                lateral_time_played_filter = "AND pms.time_played >= 1800"
             
             # Build the query using conditional components
             query = f"""
@@ -247,7 +254,7 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                         FROM pathfinder_stats.player_match_stats pms
                         INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
                         WHERE pms.player_id = tps.player_id
-                            AND pms.time_played >= 3600
+                            {lateral_time_played_filter}
                             {lateral_pathfinder_filter}
                         ORDER BY mh.start_time DESC
                         LIMIT 1
