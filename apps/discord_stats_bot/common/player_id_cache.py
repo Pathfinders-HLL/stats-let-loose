@@ -68,7 +68,7 @@ async def _save_cache_to_disk(data: dict = None) -> None:
             json.dump(data, f, indent=2)
         
         temp_file.replace(CACHE_FILE)
-        logger.debug(f"Saved {len(data)} player ID mappings")
+        logger.info(f"Saved {len(data)} player ID mappings")
     except IOError as e:
         logger.error(f"Failed to save cache to {CACHE_FILE}: {e}", exc_info=True)
 
@@ -97,9 +97,9 @@ async def clear_player_id(discord_user_id: int) -> None:
             should_save = True
             # Copy data while holding lock, then release before saving
             data_to_save = {str(user_id): pid for user_id, pid in _cache.items()}
-            logger.debug(f"Cleared player ID for Discord user {discord_user_id}")
+            logger.info(f"Cleared player ID for Discord user {discord_user_id}")
         else:
-            logger.debug(f"No player ID found for Discord user {discord_user_id}")
+            logger.info(f"No player ID found for Discord user {discord_user_id}")
     
     if should_save:
         await _save_cache_to_disk(data_to_save)

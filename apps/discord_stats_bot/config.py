@@ -35,7 +35,7 @@ else:
             except Exception as e:
                 logger.error(f"Failed to load {env_path}: {e}", exc_info=True)
     if not env_loaded:
-        logger.debug("No .env file found")
+        logger.info("No .env file found")
 
 
 class DiscordBotConfig:

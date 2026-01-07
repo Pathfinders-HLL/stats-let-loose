@@ -189,6 +189,20 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
             
             player_stats_where = " ".join(where_clauses)
             
+            # Build pathfinder filter for LATERAL JOIN (to ensure we get pathfinder names)
+            # This ensures the most recent player name also matches pathfinder criteria
+            lateral_pathfinder_filter = ""
+            lateral_param_num = param_num  # Track parameter numbers for lateral join
+            if only_pathfinders:
+                if pathfinder_ids:
+                    lateral_pathfinder_filter = f"AND (pms.player_name ILIKE ${lateral_param_num} OR pms.player_name ILIKE ${lateral_param_num + 1} OR pms.player_id = ANY(${lateral_param_num + 2}::text[]))"
+                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
+                    param_num += 3  # Update param_num after adding parameters
+                else:
+                    lateral_pathfinder_filter = f"AND (pms.player_name ILIKE ${lateral_param_num} OR pms.player_name ILIKE ${lateral_param_num + 1})"
+                    query_params.extend(["PFr |%", "PF |%"])
+                    param_num += 2  # Update param_num after adding parameters
+            
             # Build the query using conditional components
             query = f"""
                     WITH player_stats AS (
@@ -222,6 +236,7 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                         INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
                         WHERE pms.player_id = tps.player_id
                             AND pms.time_played >= 3600
+                            {lateral_pathfinder_filter}
                         ORDER BY mh.start_time DESC
                         LIMIT 1
                     ) rn ON TRUE
@@ -240,6 +255,10 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                 else:
                     log_msg += " (Pathfinders only)"
             logger.info(log_msg)
+            
+            # Log SQL query and parameters for debugging
+            logger.info(f"SQL Query: {query}")
+            logger.info(f"SQL Parameters: {query_params}")
             
             results = await conn.fetch(query, *query_params)
         

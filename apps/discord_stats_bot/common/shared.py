@@ -244,7 +244,7 @@ def get_pathfinder_player_ids() -> Set[str]:
     player_ids = set[str]()
     
     if not file_path.exists():
-        logger.debug(f"Player IDs file not found at {file_path}")
+        logger.info(f"Player IDs file not found at {file_path}")
         _pathfinder_player_ids = player_ids
         return player_ids
     

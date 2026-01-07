@@ -216,6 +216,11 @@ def register_kills_subcommand(leaderboard_group: app_commands.Group, channel_che
                 """
             
             logger.info(f"Querying top players by sum of {display_name} from top 25 matches{time_period_text}")
+            
+            # Log SQL query and parameters for debugging
+            logger.info(f"SQL Query: {query}")
+            logger.info(f"SQL Parameters: {query_params}")
+            
             results = await conn.fetch(query, *query_params)
                     
         if not results:

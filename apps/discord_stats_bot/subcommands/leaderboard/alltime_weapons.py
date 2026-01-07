@@ -134,6 +134,10 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
                     log_msg += " (Pathfinders only)"
             logger.info(log_msg)
             
+            # Log SQL query and parameters for debugging
+            logger.info(f"SQL Query: {query}")
+            logger.info(f"SQL Parameters: {query_params}")
+            
             results = await conn.fetch(query, *query_params)
         
             if not results:

@@ -92,6 +92,11 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
             """
             
             logger.info(f"Querying top players with most 100+ kill games{' (Pathfinders only)' if only_pathfinders else ''}")
+            
+            # Log SQL query and parameters for debugging
+            logger.info(f"SQL Query: {query}")
+            logger.info(f"SQL Parameters: {query_params}")
+            
             results = await conn.fetch(query, *query_params)
         
             if not results:
