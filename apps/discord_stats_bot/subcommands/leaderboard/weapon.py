@@ -16,7 +16,8 @@ from apps.discord_stats_bot.common.shared import (
     escape_sql_identifier,
     validate_over_last_days,
     get_pathfinder_player_ids,
-    command_wrapper
+    command_wrapper,
+    format_sql_query_with_params
 )
 from apps.discord_stats_bot.common.weapon_autocomplete import weapon_category_autocomplete, get_weapon_mapping
 
@@ -182,9 +183,8 @@ def register_weapon_subcommand(leaderboard_group: app_commands.Group, channel_ch
                     log_msg += " (Pathfinders only)"
             logger.info(log_msg)
             
-            # Log SQL query and parameters for debugging
-            logger.info(f"SQL Query: {query}")
-            logger.info(f"SQL Parameters: {query_params}")
+            # Log SQL query with parameters substituted
+            logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
             
             results = await conn.fetch(query, *query_params)
         

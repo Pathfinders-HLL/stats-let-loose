@@ -282,6 +282,64 @@ def create_time_filter_params(over_last_days: int) -> Tuple[str, list, str]:
     return time_filter, query_params, time_period_text
 
 
+def format_sql_query_with_params(query: str, params: list) -> str:
+    """
+    Format a SQL query with PostgreSQL-style parameters ($1, $2, etc.) by substituting
+    the actual parameter values. This is for logging purposes only.
+    
+    Args:
+        query: SQL query string with PostgreSQL placeholders ($1, $2, etc.)
+        params: List of parameter values to substitute
+        
+    Returns:
+        Formatted SQL query string with parameter values substituted
+    """
+    import re
+    from datetime import datetime
+    
+    formatted_query = query
+    
+    # Find all parameter placeholders ($1, $2, etc.) in reverse order to avoid index issues
+    param_pattern = r'\$(\d+)'
+    matches = list(re.finditer(param_pattern, formatted_query))
+    
+    # Process in reverse order to maintain correct indices
+    for match in reversed(matches):
+        param_index = int(match.group(1)) - 1  # Convert to 0-based index
+        
+        if param_index < len(params):
+            param_value = params[param_index]
+            
+            # Format the parameter value based on its type
+            if param_value is None:
+                formatted_value = "NULL"
+            elif isinstance(param_value, str):
+                # Escape single quotes and wrap in quotes
+                escaped = param_value.replace("'", "''")
+                formatted_value = f"'{escaped}'"
+            elif isinstance(param_value, (int, float)):
+                formatted_value = str(param_value)
+            elif isinstance(param_value, datetime):
+                # Format datetime as ISO string
+                formatted_value = f"'{param_value.isoformat()}'"
+            elif isinstance(param_value, list):
+                # Handle array parameters (e.g., text[])
+                if all(isinstance(x, str) for x in param_value):
+                    escaped_items = [item.replace("'", "''") for item in param_value]
+                    formatted_value = f"ARRAY[{', '.join(f\"'{item}'\" for item in escaped_items)}]"
+                else:
+                    formatted_value = f"ARRAY[{', '.join(str(x) for x in param_value)}]"
+            else:
+                # Fallback: convert to string and escape
+                escaped = str(param_value).replace("'", "''")
+                formatted_value = f"'{escaped}'"
+            
+            # Replace the placeholder with the formatted value
+            formatted_query = formatted_query[:match.start()] + formatted_value + formatted_query[match.end():]
+    
+    return formatted_query
+
+
 def command_wrapper(
     command_name: str,
     channel_check: Optional[Callable[[discord.Interaction], bool]] = None,

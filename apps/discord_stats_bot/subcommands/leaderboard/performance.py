@@ -18,7 +18,8 @@ from apps.discord_stats_bot.common.shared import (
     validate_choice_parameter,
     create_time_filter_params,
     get_pathfinder_player_ids,
-    command_wrapper
+    command_wrapper,
+    format_sql_query_with_params
 )
 
 logger = logging.getLogger(__name__)
@@ -129,10 +130,12 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                 aggregate_function = "AVG"
                 stat_label = "Average"
             
-            # Build HAVING clause - require at least 10 matches and exclude players with artillery/SPA kills (for streak stats)
-            having_clause = "HAVING COUNT(*) >= 10"
+            # Build HAVING clause - require at least 10 matches for non-streak stats
+            # For streak stats, only exclude players with artillery/SPA kills (no minimum match requirement)
             if stat_type_lower in {"kill_streak", "death_streak"}:
-                having_clause += " AND SUM(pms.artillery_kills) = 0 AND SUM(pms.spa_kills) = 0"
+                having_clause = "HAVING SUM(pms.artillery_kills) <= 5 AND SUM(pms.spa_kills) <= 5"
+            else:
+                having_clause = "HAVING COUNT(*) >= 10"
             
             # Get pathfinder player IDs from file if needed
             pathfinder_ids = get_pathfinder_player_ids() if only_pathfinders else set()
@@ -259,9 +262,8 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                     log_msg += " (Pathfinders only)"
             logger.info(log_msg)
             
-            # Log SQL query and parameters for debugging
-            logger.info(f"SQL Query: {query}")
-            logger.info(f"SQL Parameters: {query_params}")
+            # Log SQL query with parameters substituted
+            logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
             
             results = await conn.fetch(query, *query_params)
         

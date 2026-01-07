@@ -18,7 +18,8 @@ from apps.discord_stats_bot.common.shared import (
     validate_choice_parameter,
     create_time_filter_params,
     command_wrapper,
-    get_pathfinder_player_ids
+    get_pathfinder_player_ids,
+    format_sql_query_with_params
 )
 
 logger = logging.getLogger(__name__)
@@ -230,9 +231,8 @@ def register_kills_subcommand(leaderboard_group: app_commands.Group, channel_che
             
             logger.info(f"Querying top players by sum of {display_name} from top 25 matches{time_period_text}")
             
-            # Log SQL query and parameters for debugging
-            logger.info(f"SQL Query: {query}")
-            logger.info(f"SQL Parameters: {query_params}")
+            # Log SQL query with parameters substituted
+            logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
             
             results = await conn.fetch(query, *query_params)
                     

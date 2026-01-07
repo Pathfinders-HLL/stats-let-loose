@@ -13,7 +13,8 @@ from apps.discord_stats_bot.common.shared import (
     get_readonly_db_pool,
     log_command_completion,
     get_pathfinder_player_ids,
-    command_wrapper
+    command_wrapper,
+    format_sql_query_with_params
 )
 
 logger = logging.getLogger(__name__)
@@ -106,9 +107,8 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
             
             logger.info(f"Querying top players with most 100+ kill games{' (Pathfinders only)' if only_pathfinders else ''}")
             
-            # Log SQL query and parameters for debugging
-            logger.info(f"SQL Query: {query}")
-            logger.info(f"SQL Parameters: {query_params}")
+            # Log SQL query with parameters substituted
+            logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
             
             results = await conn.fetch(query, *query_params)
         
