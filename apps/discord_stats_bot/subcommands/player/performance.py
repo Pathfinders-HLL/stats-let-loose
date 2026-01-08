@@ -48,7 +48,7 @@ async def stat_type_autocomplete(
 
 def register_performance_subcommand(player_group: app_commands.Group, channel_check=None) -> None:
     """Register the performance subcommand."""
-    @player_group.command(name="performance", description="Get top matches for a player (kills, KPM, KDR, DPM, or kill/death streaks (only 60+ minute matches)")
+    @player_group.command(name="performance", description="Get top matches for a player (kills, KPM, KDR, DPM, or kill/death streaks (only 45+ minute matches)")
     @app_commands.describe(
         stat_type="The stat type to rank by (KPM, KDR, DPM, Kill Streak, Death Streak, or Most Kills)",
         player="The player ID or player name (optional if you've set one with /profile setid)"
@@ -142,7 +142,7 @@ def register_performance_subcommand(player_group: app_commands.Group, channel_ch
                 INNER JOIN pathfinder_stats.match_history mh
                     ON pms.match_id = mh.match_id
                 WHERE pms.player_id = $1
-                    AND pms.time_played >= 3600
+                    AND pms.time_played >= 2700
                 ORDER BY pms.{escaped_column} DESC
                 LIMIT 25
             """
@@ -152,7 +152,7 @@ def register_performance_subcommand(player_group: app_commands.Group, channel_ch
 
             if not results:
                 await interaction.followup.send(
-                    f"❌ No matches found for player `{found_player_name or player}` where they played 60+ minutes."
+                    f"❌ No matches found for player `{found_player_name or player}` where they played 45+ minutes."
                 )
                 log_command_completion("player performance", command_start_time, success=False, interaction=interaction, kwargs={"stat_type": stat_type, "player": player})
                 return
@@ -161,7 +161,7 @@ def register_performance_subcommand(player_group: app_commands.Group, channel_ch
         summary_lines = []
         display_player_name = found_player_name if found_player_name else player
         summary_lines.append(f"## Top 25 Matches - {display_player_name} ({display_name})\n")
-        summary_lines.append("*Player must have played 60+ minutes*\n")
+        summary_lines.append("*Player must have played 45+ minutes*\n")
 
         for rank, row in enumerate(results, 1):
             stat_value = row[stat_column]

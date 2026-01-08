@@ -48,10 +48,10 @@ async def stat_type_autocomplete(
 
 def register_performance_subcommand(leaderboard_group: app_commands.Group, channel_check=None) -> None:
     """Register the performance subcommand."""
-    @leaderboard_group.command(name="performance", description="Get top players by average KDR, KPM, DPM, kill/death streaks (players must have played 60+ minutes)")
+    @leaderboard_group.command(name="performance", description="Get top players by average KDR, KPM, DPM, kill/death streaks (players must have played 45+ minutes)")
     @app_commands.describe(
         stat_type="The stat type to rank by (KDR, KPM, DPM, Kill Streak, or Death Streak)",
-        over_last_days="(Optional) Number of days to look back (default: 30, use 0 for all-time). Only includes matches where the player played 60+ minutes.",
+        over_last_days="(Optional) Number of days to look back (default: 30, use 0 for all-time). Only includes matches where the player played 45+ minutes.",
         only_pathfinders="(Optional) If true, only show Pathfinder players (default: false)"
     )
     @app_commands.autocomplete(stat_type=stat_type_autocomplete)
@@ -189,7 +189,7 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
             # Add the time_played filter (only for non-streak stats)
             # Streak stats don't require a minimum time played
             if stat_type_lower not in {"kill_streak", "death_streak"}:
-                time_played_filter = "pms.time_played >= 3600"
+                time_played_filter = "pms.time_played >= 2700"
                 if where_clauses:
                     where_clauses.append(f"AND {time_played_filter}")
                 else:
@@ -220,7 +220,7 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
             # Build time_played filter for LATERAL JOIN (only for non-streak stats)
             lateral_time_played_filter = ""
             if stat_type_lower not in {"kill_streak", "death_streak"}:
-                lateral_time_played_filter = "AND pms.time_played >= 1800"
+                lateral_time_played_filter = "AND pms.time_played >= 2700"
             
             # Build the query using conditional components
             query = f"""

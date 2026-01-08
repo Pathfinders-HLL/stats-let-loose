@@ -4,35 +4,35 @@
 
 -- ============================================================================
 -- Indexes for /player performance command
--- Pattern: WHERE player_id = X AND time_played >= 3600 ORDER BY stat_column DESC
+-- Pattern: WHERE player_id = X AND time_played >= 2700 ORDER BY stat_column DESC
 -- ============================================================================
 
 -- Optimize: Player performance queries filtering by player_id and time_played
 -- Used in: /player performance command for KPM, KDR, DPM, streaks, and kills
--- These indexes help with WHERE player_id = X AND time_played >= 3600 ORDER BY column DESC
+-- These indexes help with WHERE player_id = X AND time_played >= 2700 ORDER BY column DESC
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_kpm_time 
 ON pathfinder_stats.player_match_stats(player_id, kills_per_minute DESC) 
-WHERE time_played >= 3600;
+WHERE time_played >= 2700;
 
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_kdr_time 
 ON pathfinder_stats.player_match_stats(player_id, kill_death_ratio DESC) 
-WHERE time_played >= 3600;
+WHERE time_played >= 2700;
 
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_dpm_time 
 ON pathfinder_stats.player_match_stats(player_id, deaths_per_minute DESC) 
-WHERE time_played >= 3600;
+WHERE time_played >= 2700;
 
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_kill_streak_time 
 ON pathfinder_stats.player_match_stats(player_id, kill_streak DESC) 
-WHERE time_played >= 3600;
+WHERE time_played >= 2700;
 
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_death_streak_time 
 ON pathfinder_stats.player_match_stats(player_id, death_streak DESC) 
-WHERE time_played >= 3600;
+WHERE time_played >= 2700;
 
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_total_kills_time 
 ON pathfinder_stats.player_match_stats(player_id, total_kills DESC) 
-WHERE time_played >= 3600;
+WHERE time_played >= 2700;
 
 -- ============================================================================
 -- Indexes for /player contributions command
@@ -118,31 +118,31 @@ WHERE combat_score > 0;
 
 -- ============================================================================
 -- Indexes for /leaderboard performance command
--- Pattern: WHERE time_played >= 3600 [AND mh.start_time >= Y] GROUP BY player_id ORDER BY AVG/MAX(stat_column) DESC
+-- Pattern: WHERE time_played >= 2700 [AND mh.start_time >= Y] GROUP BY player_id ORDER BY AVG/MAX(stat_column) DESC
 -- ============================================================================
 
 -- Optimize: Leaderboard performance queries filtering by time_played
 -- Used in: /leaderboard performance command for KPM, KDR, DPM, streaks
--- These help with GROUP BY player_id queries that filter by time_played >= 3600
+-- These help with GROUP BY player_id queries that filter by time_played >= 2700
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_time_played_kpm 
 ON pathfinder_stats.player_match_stats(time_played, kills_per_minute DESC) 
-WHERE time_played >= 3600;
+WHERE time_played >= 2700;
 
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_time_played_kdr 
 ON pathfinder_stats.player_match_stats(time_played, kill_death_ratio DESC) 
-WHERE time_played >= 3600;
+WHERE time_played >= 2700;
 
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_time_played_dpm 
 ON pathfinder_stats.player_match_stats(time_played, deaths_per_minute DESC) 
-WHERE time_played >= 3600;
+WHERE time_played >= 2700;
 
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_time_played_kill_streak 
 ON pathfinder_stats.player_match_stats(time_played, kill_streak DESC) 
-WHERE time_played >= 3600;
+WHERE time_played >= 2700;
 
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_time_played_death_streak 
 ON pathfinder_stats.player_match_stats(time_played, death_streak DESC) 
-WHERE time_played >= 3600;
+WHERE time_played >= 2700;
 
 -- ============================================================================
 -- Indexes for /leaderboard contributions command
@@ -194,22 +194,22 @@ ANALYZE pathfinder_stats.player_death_stats;
 -- ============================================================================
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_kpm_time IS 
-'Optimizes /player performance queries for KPM with time_played >= 3600 filter';
+'Optimizes /player performance queries for KPM with time_played >= 2700 filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_kdr_time IS 
-'Optimizes /player performance queries for KDR with time_played >= 3600 filter';
+'Optimizes /player performance queries for KDR with time_played >= 2700 filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_dpm_time IS 
-'Optimizes /player performance queries for DPM with time_played >= 3600 filter';
+'Optimizes /player performance queries for DPM with time_played >= 2700 filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_kill_streak_time IS 
-'Optimizes /player performance queries for kill streak with time_played >= 3600 filter';
+'Optimizes /player performance queries for kill streak with time_played >= 2700 filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_death_streak_time IS 
-'Optimizes /player performance queries for death streak with time_played >= 3600 filter';
+'Optimizes /player performance queries for death streak with time_played >= 2700 filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_total_kills_time IS 
-'Optimizes /player performance queries for most kills with time_played >= 3600 filter';
+'Optimizes /player performance queries for most kills with time_played >= 2700 filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_support_score IS 
 'Optimizes /player contributions queries for support score';
@@ -242,19 +242,19 @@ COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_combat_score_
 'Optimizes /player maps queries ordered by combat score';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_time_played_kpm IS 
-'Optimizes /leaderboard performance queries for KPM with time_played filter';
+'Optimizes /leaderboard performance queries for KPM with time_played >= 2700 filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_time_played_kdr IS 
-'Optimizes /leaderboard performance queries for KDR with time_played filter';
+'Optimizes /leaderboard performance queries for KDR with time_played >= 2700 filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_time_played_dpm IS 
-'Optimizes /leaderboard performance queries for DPM with time_played filter';
+'Optimizes /leaderboard performance queries for DPM with time_played >= 2700 filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_time_played_kill_streak IS 
-'Optimizes /leaderboard performance queries for kill streak with time_played filter';
+'Optimizes /leaderboard performance queries for kill streak with time_played >= 2700 filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_time_played_death_streak IS 
-'Optimizes /leaderboard performance queries for death streak with time_played filter';
+'Optimizes /leaderboard performance queries for death streak with time_played >= 2700 filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_support_score_window IS 
 'Optimizes /leaderboard contributions queries for support score using window functions';
