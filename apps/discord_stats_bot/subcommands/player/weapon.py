@@ -205,63 +205,6 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
                 rank = 0
                 total_players = 0
 
-            # Query 3: Get all players tied at the same rank (same total_kills)
-            if base_query_params:
-                query3 = f"""
-                    WITH player_totals AS (
-                        SELECT
-                            pks.player_id,
-                            COALESCE(SUM(pks.{escaped_column}), 0) as total_kills
-                        FROM pathfinder_stats.player_kill_stats pks
-                        INNER JOIN pathfinder_stats.match_history mh
-                            ON pks.match_id = mh.match_id
-                        WHERE mh.start_time >= $1
-                        GROUP BY pks.player_id
-                        HAVING COALESCE(SUM(pks.{escaped_column}), 0) > 0
-                    )
-                    SELECT
-                        pt.player_id,
-                        COALESCE(rn.player_name, pt.player_id) as player_name
-                    FROM player_totals pt
-                    LEFT JOIN LATERAL (
-                        SELECT pms.player_name
-                        FROM pathfinder_stats.player_match_stats pms
-                        INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-                        WHERE pms.player_id = pt.player_id
-                        ORDER BY mh.start_time DESC
-                        LIMIT 1
-                    ) rn ON TRUE
-                    WHERE pt.total_kills = $2
-                    ORDER BY pt.player_id
-                """
-                tied_players_result = await conn.fetch(query3, base_query_params[0], total_kills)
-            else:
-                query3 = f"""
-                    WITH player_totals AS (
-                        SELECT
-                            player_id,
-                            COALESCE(SUM({escaped_column}), 0) as total_kills
-                        FROM pathfinder_stats.player_kill_stats
-                        GROUP BY player_id
-                        HAVING COALESCE(SUM({escaped_column}), 0) > 0
-                    )
-                    SELECT
-                        pt.player_id,
-                        COALESCE(rn.player_name, pt.player_id) as player_name
-                    FROM player_totals pt
-                    LEFT JOIN LATERAL (
-                        SELECT pms.player_name
-                        FROM pathfinder_stats.player_match_stats pms
-                        INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-                        WHERE pms.player_id = pt.player_id
-                        ORDER BY mh.start_time DESC
-                        LIMIT 1
-                    ) rn ON TRUE
-                    WHERE pt.total_kills = $1
-                    ORDER BY pt.player_id
-                """
-                tied_players_result = await conn.fetch(query3, total_kills)
-
             # Display result
             display_name = found_player_name if found_player_name else player
             if total_kills == 0:
@@ -272,21 +215,9 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
                 rank_text = f"Rank **#{rank}**"
                 if total_players > 0:
                     rank_text += f" out of **{total_players}** players"
-                
-                # Build tied players list
-                tied_players = []
-                for row in tied_players_result:
-                    tied_name = row['player_name'] if row['player_name'] else row['player_id']
-                    tied_players.append(tied_name)
-                
-                message = f"Player `{display_name}` has **{total_kills:,}** total kills with `{friendly_category_name}`{time_period_text} ({rank_text})"
-                
-                # Add tied players info if there are ties
-                if len(tied_players) > 1:
-                    tied_list = ", ".join([f"`{name}`" for name in tied_players])
-                    message += f"\n\n**Tied players ({len(tied_players)}):** {tied_list}"
-                
-                await interaction.followup.send(message)
+                await interaction.followup.send(
+                    f"Player `{display_name}` has **{total_kills:,}** total kills with `{friendly_category_name}`{time_period_text} ({rank_text})"
+                )
 
             log_command_completion("player weapon", command_start_time, success=True, interaction=interaction, kwargs={"weapon_category": weapon_category, "player": player, "over_last_days": over_last_days})
 
