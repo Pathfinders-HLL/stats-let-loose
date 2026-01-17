@@ -19,7 +19,11 @@ from apps.discord_stats_bot.common.shared import (
     create_time_filter_params,
     command_wrapper,
     get_pathfinder_player_ids,
-    format_sql_query_with_params
+    format_sql_query_with_params,
+    build_pathfinder_filter,
+    build_lateral_name_lookup,
+    build_from_clause_with_time_filter,
+    build_where_clause,
 )
 
 logger = logging.getLogger(__name__)
@@ -119,75 +123,50 @@ def register_contributions_subcommand(leaderboard_group: app_commands.Group, cha
             escaped_column = escape_sql_identifier(score_column)
             
             # Get pathfinder player IDs from file if needed
-            pathfinder_ids = get_pathfinder_player_ids() if only_pathfinders else set()
-            pathfinder_ids_list = list(pathfinder_ids) if pathfinder_ids else []
+            pathfinder_ids_list = list(get_pathfinder_player_ids()) if only_pathfinders else []
             
-            # Build query components conditionally
+            # Build query components
             param_num = 1
             query_params = []
             
-            # Build FROM clause - include JOIN if time filtering is needed
+            # Build FROM clause with optional time filter JOIN
+            from_clause, _ = build_from_clause_with_time_filter(
+                "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
+            )
+            
+            # Build time filter WHERE clause
+            time_where = ""
             if base_query_params:
-                from_clause = """FROM pathfinder_stats.player_match_stats pms
-                    INNER JOIN pathfinder_stats.match_history mh
-                        ON pms.match_id = mh.match_id"""
                 time_where = f"WHERE mh.start_time >= ${param_num}"
                 query_params.extend(base_query_params)
                 param_num += len(base_query_params)
-            else:
-                from_clause = "FROM pathfinder_stats.player_match_stats pms"
-                time_where = ""
             
-            # Build pathfinder filter WHERE clause
+            # Build pathfinder filter
             pathfinder_where = ""
             if only_pathfinders:
-                if pathfinder_ids:
-                    if time_where:
-                        pathfinder_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
-                    else:
-                        pathfinder_where = f"WHERE (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
-                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
-                    param_num += 3
-                else:
-                    if time_where:
-                        pathfinder_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
-                    else:
-                        pathfinder_where = f"WHERE (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
-                    query_params.extend(["PFr |%", "PF |%"])
-                    param_num += 2
+                pathfinder_where, pf_params, param_num = build_pathfinder_filter(
+                    "pms", param_num, pathfinder_ids_list, use_and=bool(time_where)
+                )
+                query_params.extend(pf_params)
             
-            # Build the WHERE clause properly
-            where_clauses = []
-            if time_where:
-                where_clauses.append(time_where)
-            if pathfinder_where:
-                # pathfinder_where already contains WHERE or AND as needed
-                # But if we already have a WHERE clause, ensure it starts with AND
-                if where_clauses and pathfinder_where.strip().startswith("WHERE"):
-                    pathfinder_where = pathfinder_where.replace("WHERE", "AND", 1)
-                where_clauses.append(pathfinder_where)
+            # Combine WHERE clauses with score column filter
+            ranked_matches_where = build_where_clause(
+                time_where, pathfinder_where,
+                base_filter=f"pms.{escaped_column} > 0"
+            )
             
-            # Add the score column filter
-            score_filter = f"pms.{escaped_column} > 0"
-            if where_clauses:
-                where_clauses.append(f"AND {score_filter}")
-            else:
-                where_clauses.append(f"WHERE {score_filter}")
-            
-            ranked_matches_where = " ".join(where_clauses)
-            
-            # Build LATERAL join pathfinder filter (for getting player names)
+            # Build LATERAL join pathfinder filter
             lateral_where = ""
             if only_pathfinders:
-                if pathfinder_ids:
-                    lateral_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
-                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
-                else:
-                    lateral_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
-                    query_params.extend(["PFr |%", "PF |%"])
+                lateral_where, lateral_params, param_num = build_pathfinder_filter(
+                    "pms", param_num, pathfinder_ids_list, use_and=True
+                )
+                query_params.extend(lateral_params)
+            
+            # Build LATERAL JOIN for player name lookup
+            lateral_join = build_lateral_name_lookup("tp.player_id", lateral_where)
             
             # Build query to get top players by sum of scores from their top 25 matches
-            # This uses a window function to rank matches per player, then sums the top 25
             query = f"""
                 WITH ranked_matches AS (
                     SELECT 
@@ -218,15 +197,7 @@ def register_contributions_subcommand(leaderboard_group: app_commands.Group, cha
                     COALESCE(rn.player_name, tp.player_id) as player_name,
                     tp.total_score_top25
                 FROM top_players tp
-                LEFT JOIN LATERAL (
-                    SELECT pms.player_name
-                    FROM pathfinder_stats.player_match_stats pms
-                    INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-                    WHERE pms.player_id = tp.player_id
-                        {lateral_where}
-                    ORDER BY mh.start_time DESC
-                    LIMIT 1
-                ) rn ON TRUE
+                {lateral_join}
                 ORDER BY tp.total_score_top25 DESC
             """
             

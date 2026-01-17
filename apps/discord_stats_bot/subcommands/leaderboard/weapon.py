@@ -4,7 +4,6 @@ Leaderboard weapon subcommand - Get top players by weapon kills in the last 30 d
 
 import logging
 import time
-from datetime import datetime, timedelta
 
 import asyncpg
 import discord
@@ -15,9 +14,14 @@ from apps.discord_stats_bot.common.shared import (
     log_command_completion,
     escape_sql_identifier,
     validate_over_last_days,
+    create_time_filter_params,
     get_pathfinder_player_ids,
     command_wrapper,
-    format_sql_query_with_params
+    format_sql_query_with_params,
+    build_pathfinder_filter,
+    build_lateral_name_lookup,
+    build_from_clause_with_time_filter,
+    build_where_clause,
 )
 from apps.discord_stats_bot.common.weapon_autocomplete import weapon_category_autocomplete, get_weapon_mapping
 
@@ -66,13 +70,8 @@ def register_weapon_subcommand(leaderboard_group: app_commands.Group, channel_ch
             log_command_completion("leaderboard weapon", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "only_pathfinders": only_pathfinders, "over_last_days": over_last_days})
             return
         
-        # Calculate date N days ago (or None for all-time)
-        if over_last_days > 0:
-            days_ago = datetime.utcnow() - timedelta(days=over_last_days)
-            time_period_text = f" over the last {over_last_days} day{'s' if over_last_days != 1 else ''}"
-        else:
-            days_ago = None
-            time_period_text = " (All Time)"
+        # Calculate time period filter
+        time_filter, base_query_params, time_period_text = create_time_filter_params(over_last_days)
         
         # Connect to database and query
         pool = await get_readonly_db_pool()
@@ -81,58 +80,45 @@ def register_weapon_subcommand(leaderboard_group: app_commands.Group, channel_ch
             escaped_column = escape_sql_identifier(column_name)
             
             # Get pathfinder player IDs from file if needed
-            pathfinder_ids = get_pathfinder_player_ids() if only_pathfinders else set()
-            pathfinder_ids_list = list(pathfinder_ids) if pathfinder_ids else []
+            pathfinder_ids_list = list(get_pathfinder_player_ids()) if only_pathfinders else []
             
-            # Build query components conditionally
+            # Build query components
             param_num = 1
             query_params = []
             
-            # Determine if we need time filtering (JOIN with match_history)
-            needs_time_filter = days_ago is not None
+            # Build FROM clause with optional time filter JOIN
+            from_clause, _ = build_from_clause_with_time_filter(
+                "pathfinder_stats.player_kill_stats", "pks", bool(base_query_params)
+            )
             
-            # Build FROM clause - include JOIN if time filtering is needed
-            if needs_time_filter:
-                from_clause = """FROM pathfinder_stats.player_kill_stats pks
-                                INNER JOIN pathfinder_stats.match_history mh
-                                    ON pks.match_id = mh.match_id"""
+            # Build time filter WHERE clause
+            time_where = ""
+            if base_query_params:
                 time_where = f"WHERE mh.start_time >= ${param_num}"
-                query_params.append(days_ago)
-                param_num += 1
-            else:
-                from_clause = "FROM pathfinder_stats.player_kill_stats pks"
-                time_where = ""
+                query_params.extend(base_query_params)
+                param_num += len(base_query_params)
             
-            # Build pathfinder filter WHERE clause
+            # Build pathfinder filter (uses pks alias for player_kill_stats)
             pathfinder_where = ""
             if only_pathfinders:
-                if pathfinder_ids:
-                    if time_where:
-                        pathfinder_where = f"AND (pks.player_name ILIKE ${param_num} OR pks.player_name ILIKE ${param_num + 1} OR pks.player_id = ANY(${param_num + 2}::text[]))"
-                    else:
-                        pathfinder_where = f"WHERE (pks.player_name ILIKE ${param_num} OR pks.player_name ILIKE ${param_num + 1} OR pks.player_id = ANY(${param_num + 2}::text[]))"
-                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
-                    param_num += 3
-                else:
-                    if time_where:
-                        pathfinder_where = f"AND (pks.player_name ILIKE ${param_num} OR pks.player_name ILIKE ${param_num + 1})"
-                    else:
-                        pathfinder_where = f"WHERE (pks.player_name ILIKE ${param_num} OR pks.player_name ILIKE ${param_num + 1})"
-                    query_params.extend(["PFr |%", "PF |%"])
-                    param_num += 2
+                pathfinder_where, pf_params, param_num = build_pathfinder_filter(
+                    "pks", param_num, pathfinder_ids_list, use_and=bool(time_where)
+                )
+                query_params.extend(pf_params)
             
             # Combine WHERE clauses
-            kill_stats_where = f"{time_where} {pathfinder_where}".strip()
+            kill_stats_where = build_where_clause(time_where, pathfinder_where)
             
-            # Build LATERAL join WHERE clause
+            # Build LATERAL join pathfinder filter (uses pms alias for player_match_stats)
             lateral_where = ""
             if only_pathfinders:
-                if pathfinder_ids:
-                    lateral_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
-                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
-                else:
-                    lateral_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
-                    query_params.extend(["PFr |%", "PF |%"])
+                lateral_where, lateral_params, param_num = build_pathfinder_filter(
+                    "pms", param_num, pathfinder_ids_list, use_and=True
+                )
+                query_params.extend(lateral_params)
+            
+            # Build LATERAL JOIN for player name lookup
+            lateral_join = build_lateral_name_lookup("tks.player_id", lateral_where)
             
             # Build the query using conditional components
             query = f"""
@@ -158,27 +144,19 @@ def register_weapon_subcommand(leaderboard_group: app_commands.Group, channel_ch
                     COALESCE(rn.player_name, tks.player_id) as player_name,
                     tks.total_kills
                 FROM top_kill_stats tks
-                LEFT JOIN LATERAL (
-                    SELECT pms.player_name
-                    FROM pathfinder_stats.player_match_stats pms
-                    INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-                    WHERE pms.player_id = tks.player_id
-                        {lateral_where}
-                    ORDER BY mh.start_time DESC
-                    LIMIT 1
-                ) rn ON TRUE
+                {lateral_join}
                 ORDER BY tks.total_kills DESC
             """
             
             # Build log message
             log_msg = f"Querying top kills for weapon: {weapon_category_lower} (column: {column_name})"
-            if days_ago:
+            if base_query_params:
                 log_msg += f" in last {over_last_days} days"
             else:
                 log_msg += " (All Time)"
             if only_pathfinders:
-                if pathfinder_ids:
-                    log_msg += f" (Pathfinders only, {len(pathfinder_ids)} IDs from file)"
+                if pathfinder_ids_list:
+                    log_msg += f" (Pathfinders only, {len(pathfinder_ids_list)} IDs from file)"
                 else:
                     log_msg += " (Pathfinders only)"
             logger.info(log_msg)

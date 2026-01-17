@@ -77,12 +77,14 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                 player = stored_player_id
             else:
                 await interaction.followup.send("❌ No player ID provided and you haven't set one! Either provide a player ID/name, or use `/profile setid` to set a default.", ephemeral=True)
+                log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
                 return
 
         # Validate map_name
         map_name = map_name.strip()
         if not map_name:
             await interaction.followup.send("❌ Please provide a map name.")
+            log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
             return
         
         # Find the properly cased map name
@@ -97,6 +99,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
             if suggestions:
                 suggestion_text = f"\n\nDid you mean: {', '.join(suggestions)}?"
             await interaction.followup.send(f"❌ Unknown map: `{map_name}`.{suggestion_text}")
+            log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
             return
 
         # Validate order_by
@@ -107,6 +110,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
             )
         except ValueError as e:
             await interaction.followup.send(str(e))
+            log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
             return
 
         # Map order_by to column name and display name
@@ -146,6 +150,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
 
             if not player_id:
                 await interaction.followup.send(f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.")
+                log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
                 return
 
             # Build query to get best matches for the specific map
@@ -182,6 +187,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                 await interaction.followup.send(
                     f"❌ No matches found for player `{found_player_name or player}` on map `{proper_map_name}`."
                 )
+                log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
                 return
 
             # Format results

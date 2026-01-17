@@ -73,6 +73,7 @@ def register_deaths_subcommand(player_group: app_commands.Group, channel_check=N
             validate_over_last_days(over_last_days)
         except ValueError as e:
             await interaction.followup.send(str(e))
+            log_command_completion("player deaths", command_start_time, success=False, interaction=interaction, kwargs={"death_type": death_type, "player": player, "over_last_days": over_last_days})
             return
 
         # If player not provided, try to get stored one from cache
@@ -92,6 +93,7 @@ def register_deaths_subcommand(player_group: app_commands.Group, channel_check=N
             )
         except ValueError as e:
             await interaction.followup.send(str(e))
+            log_command_completion("player deaths", command_start_time, success=False, interaction=interaction, kwargs={"death_type": death_type, "player": player, "over_last_days": over_last_days})
             return
             
         # Map death type to column name and display name
@@ -126,6 +128,7 @@ def register_deaths_subcommand(player_group: app_commands.Group, channel_check=N
 
             if not player_id:
                 await interaction.followup.send(f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.")
+                log_command_completion("player deaths", command_start_time, success=False, interaction=interaction, kwargs={"death_type": death_type, "player": player, "over_last_days": over_last_days})
                 return
 
             # Calculate time period filter
@@ -166,6 +169,7 @@ def register_deaths_subcommand(player_group: app_commands.Group, channel_check=N
                 await interaction.followup.send(
                     f"❌ No matches found for player `{found_player_name or player}` with {display_name.lower()}{time_period_text}."
                 )
+                log_command_completion("player deaths", command_start_time, success=False, interaction=interaction, kwargs={"death_type": death_type, "player": player, "over_last_days": over_last_days})
                 return
 
             # Calculate total deaths from top 25 matches

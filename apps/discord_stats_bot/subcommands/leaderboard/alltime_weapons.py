@@ -15,7 +15,9 @@ from apps.discord_stats_bot.common.shared import (
     escape_sql_identifier,
     get_pathfinder_player_ids,
     command_wrapper,
-    format_sql_query_with_params
+    format_sql_query_with_params,
+    build_pathfinder_filter,
+    build_lateral_name_lookup,
 )
 from apps.discord_stats_bot.common.weapon_autocomplete import weapon_category_autocomplete, get_weapon_mapping
 
@@ -62,35 +64,32 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
             escaped_column = escape_sql_identifier(column_name)
             
             # Get pathfinder player IDs from file if needed
-            pathfinder_ids = get_pathfinder_player_ids() if only_pathfinders else set()
-            pathfinder_ids_list = list(pathfinder_ids) if pathfinder_ids else []
+            pathfinder_ids_list = list(get_pathfinder_player_ids()) if only_pathfinders else []
             
-            # Build WHERE clause for kill_stats CTE
+            # Build query components
             param_num = 1
-            kill_stats_where = ""
             query_params = []
             
+            # Build pathfinder filter for kill_stats CTE
+            kill_stats_where = ""
             if only_pathfinders:
-                if pathfinder_ids:
-                    kill_stats_where = f"WHERE (pks.player_name ILIKE ${param_num} OR pks.player_name ILIKE ${param_num + 1} OR pks.player_id = ANY(${param_num + 2}::text[]))"
-                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
-                    param_num += 3
-                else:
-                    kill_stats_where = f"WHERE (pks.player_name ILIKE ${param_num} OR pks.player_name ILIKE ${param_num + 1})"
-                    query_params.extend(["PFr |%", "PF |%"])
-                    param_num += 2
+                kill_stats_where, pf_params, param_num = build_pathfinder_filter(
+                    "pks", param_num, pathfinder_ids_list, use_and=False
+                )
+                query_params.extend(pf_params)
             
-            # Build WHERE clause for LATERAL join
+            # Build LATERAL join pathfinder filter
             lateral_where = ""
             if only_pathfinders:
-                if pathfinder_ids:
-                    lateral_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1} OR pms.player_id = ANY(${param_num + 2}::text[]))"
-                    query_params.extend(["PFr |%", "PF |%", pathfinder_ids_list])
-                else:
-                    lateral_where = f"AND (pms.player_name ILIKE ${param_num} OR pms.player_name ILIKE ${param_num + 1})"
-                    query_params.extend(["PFr |%", "PF |%"])
+                lateral_where, lateral_params, param_num = build_pathfinder_filter(
+                    "pms", param_num, pathfinder_ids_list, use_and=True
+                )
+                query_params.extend(lateral_params)
             
-            # Build the query using conditional WHERE clauses
+            # Build LATERAL JOIN for player name lookup
+            lateral_join = build_lateral_name_lookup("tks.player_id", lateral_where)
+            
+            # Build the query
             query = f"""
                 WITH kill_stats AS (
                     SELECT 
@@ -114,15 +113,7 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
                     COALESCE(rn.player_name, tks.player_id) as player_name,
                     tks.total_kills
                 FROM top_kill_stats tks
-                LEFT JOIN LATERAL (
-                    SELECT pms.player_name
-                    FROM pathfinder_stats.player_match_stats pms
-                    INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-                    WHERE pms.player_id = tks.player_id
-                        {lateral_where}
-                    ORDER BY mh.start_time DESC
-                    LIMIT 1
-                ) rn ON TRUE
+                {lateral_join}
                 ORDER BY tks.total_kills DESC
             """
             
