@@ -8,6 +8,7 @@ python-dotenv~=1.2
 
 # Discord API library
 discord.py~=2.3.0
+audioop-lts~=0.2.2
 
 # Caching library for player ID storage
 cachetools~=6.2
