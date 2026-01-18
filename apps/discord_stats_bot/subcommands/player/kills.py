@@ -10,6 +10,7 @@ from typing import List
 import asyncpg
 import discord
 from discord import app_commands
+from tabulate import tabulate
 
 from apps.discord_stats_bot.common.player_id_cache import get_player_id
 from apps.discord_stats_bot.common.shared import (
@@ -151,6 +152,7 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
                     pms.{escaped_column} as kill_count,
                     pms.total_kills,
                     pms.total_deaths,
+                    pms.kill_death_ratio as kdr,
                     mh.match_duration
                 FROM pathfinder_stats.player_match_stats pms
                 INNER JOIN pathfinder_stats.match_history mh
@@ -172,19 +174,16 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
                 log_command_completion("player kills", command_start_time, success=False, interaction=interaction, kwargs={"kill_type": kill_type, "player": player, "over_last_days": over_last_days})
                 return
 
-            # Calculate total kills from top 25 matches
-            total_kills_top25 = sum(row['kill_count'] for row in results)
-
-            # Format results
-            summary_lines = []
+            # Format results as a table
             display_player_name = found_player_name if found_player_name else player
-            summary_lines.append(f"## Top 25 Matches - {display_player_name} ({display_name}){time_period_text}\n")
-            summary_lines.append(f"**Total {display_name.lower()} in top 25 matches: {total_kills_top25:,}**\n")
-
+            
+            # Prepare data for table formatting
+            table_data = []
             for rank, row in enumerate(results, 1):
-                kill_count = row['kill_count']
-                # Format duration (seconds to minutes)
-                duration_min = row['match_duration'] // 60 if row['match_duration'] else 0
+                kills = int(row['kill_count'])
+                deaths = int(row['total_deaths'])
+                kdr = float(row['kdr'])
+
                 # Format start_time (timestamp to readable date)
                 start_time_val = row['start_time']
                 if isinstance(start_time_val, datetime):
@@ -192,10 +191,30 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
                 else:
                     start_time_str = str(start_time_val)
 
-                summary_lines.append(
-                    f"{rank}. **{row['map_name']}** - {kill_count:,} {display_name.lower()} "
-                    f"({row['total_kills']}K/{row['total_deaths']}D, {duration_min}min) - {start_time_str}"
-                )
+                table_data.append([
+                    rank,
+                    row['map_name'],
+                    kills,
+                    deaths,
+                    f"{kdr:.2f}",
+                    start_time_str
+                ])
+
+            # Headers for the table
+            headers = ["#", "Map Name", "Kills", "Deaths", "K/D", "Date"]
+            
+            # Build table using tabulate with github format (single-space padding, auto-expanding columns)
+            table_str = tabulate(
+                table_data,
+                headers=headers,
+                tablefmt="github"
+            )
+            
+            summary_lines = []
+            summary_lines.append(f"## Top 25 Matches - {display_player_name} ({display_name}){time_period_text}")
+            summary_lines.append("```")
+            summary_lines.append(table_str)
+            summary_lines.append("```")
 
             # Discord message limit is 2000 characters
             message = "\n".join(summary_lines)

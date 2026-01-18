@@ -9,6 +9,7 @@ from typing import List
 
 import discord
 from discord import app_commands
+from tabulate import tabulate
 
 from apps.discord_stats_bot.common.player_id_cache import get_player_id
 from apps.discord_stats_bot.common.shared import (
@@ -33,7 +34,6 @@ ORDER_BY_CHOICES = [
     app_commands.Choice(name="Kills", value="kills"),
     app_commands.Choice(name="KDR (Kill-Death Ratio)", value="kdr"),
     app_commands.Choice(name="KPM (Kills Per Minute)", value="kpm"),
-    app_commands.Choice(name="Combat Score", value="combat"),
 ]
 
 
@@ -61,7 +61,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
     @player_group.command(name="maps", description="Get a player's best match stats for a specific map")
     @app_commands.describe(
         map_name="The map name (e.g., 'Carentan', 'Stalingrad', 'Omaha Beach')",
-        order_by="How to order results (Kills, KDR, KPM, or Combat Score)",
+        order_by="How to order results (Kills, KDR, or KPM)",
         player="The player ID or player name (optional if you've set one with /profile setid)"
     )
     @app_commands.autocomplete(map_name=map_name_autocomplete, order_by=order_by_autocomplete)
@@ -105,8 +105,8 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
         # Validate order_by
         try:
             order_by_lower = validate_choice_parameter(
-                "order by", order_by, {"kills", "kdr", "kpm", "combat"},
-                ["Kills", "KDR (Kill-Death Ratio)", "KPM (Kills Per Minute)", "Combat Score"]
+                "order by", order_by, {"kills", "kdr", "kpm"},
+                ["Kills", "KDR (Kill-Death Ratio)", "KPM (Kills Per Minute)"]
             )
         except ValueError as e:
             await interaction.followup.send(str(e))
@@ -129,11 +129,6 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                 "column": "kills_per_minute",
                 "display_name": "KPM",
                 "format": "{:.2f}"
-            },
-            "combat": {
-                "column": "combat_score",
-                "display_name": "Combat Score",
-                "format": "{:.0f}"
             }
         }
 
@@ -190,29 +185,17 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                 log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
                 return
 
-            # Format results
-            summary_lines = []
+            # Format results as a table
             display_player_name = found_player_name if found_player_name else player
-            summary_lines.append(f"## Best Matches on {proper_map_name} - {display_player_name}\n")
-            summary_lines.append(f"*Top matches ordered by {order_display_name} (best to worst)*\n\n")
+            
+            # Prepare data for table formatting with blue formatting for the column
+            table_data = []
+            for row in results:
+                kills = int(row['total_kills'])
+                deaths = int(row['total_deaths'])
+                kdr = float(row['kdr'])
+                kpm = float(row['kpm'])
 
-            for rank, row in enumerate(results, 1):
-                kills = row['total_kills']
-                deaths = row['total_deaths']
-                kdr = row['kdr']
-                kpm = row['kpm']
-                combat_score = row['combat_score']
-                offense_score = row['offense_score']
-                defense_score = row['defense_score']
-                support_score = row['support_score']
-                
-                # Format the ordering stat value
-                order_value = row['order_value']
-                formatted_order_value = format_str.format(order_value)
-                
-                # Format duration (seconds to minutes)
-                duration_min = row['match_duration'] // 60 if row['match_duration'] else 0
-                
                 # Format start_time (timestamp to readable date)
                 start_time_val = row['start_time']
                 if isinstance(start_time_val, datetime):
@@ -220,18 +203,39 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                 else:
                     start_time_str = str(start_time_val)
 
-                # Build stats line with key information
-                summary_lines.append(
-                    f"{rank}. **{formatted_order_value} {order_display_name.lower()}** - "
-                    f"{kills}K/{deaths}D (KDR: {kdr:.2f}, KPM: {kpm:.2f}) | "
-                    f"Combat: {combat_score:,} | Off: {offense_score:,} | Def: {defense_score:,} | Sup: {support_score:,} | "
-                    f"{duration_min}min - {start_time_str}"
-                )
+                # Format kills with inline code (appears blue-ish in Discord) for visual distinction
+                table_data.append([
+                    f"`{kills}`",  # Kills column with inline code formatting
+                    deaths,
+                    f"{kdr:.2f}",
+                    f"{kpm:.2f}",
+                    start_time_str
+                ])
 
-            # Discord message limit is 2000 characters
-            message = "\n".join(summary_lines)
-            if len(message) > 2000:
-                message = message[:1997] + "..."
+            # Headers with Date column and without Map Name and rank columns
+            headers = ["Kills", "Deaths", "K/D", "KPM", "Date"]
+            
+            # Build table using tabulate with github format (single-space padding, auto-expanding columns)
+            table_str = tabulate(
+                table_data,
+                headers=headers,
+                tablefmt="github"
+            )
+            
+            # Create Discord embed
+            embed = discord.Embed(
+                title=f"Best Matches on {proper_map_name}",
+                description=f"**Player:** {display_player_name}\n**Ordered by:** {order_display_name}"
+            )
+            
+            # Add table as a code block in the embed description or field
+            # Discord embed description limit is 4096 characters, field value limit is 1024
+            # We'll use a field for the table since it's cleaner
+            embed.add_field(
+                name="Match Results",
+                value=f"```\n{table_str}\n```",
+                inline=False
+            )
 
-            await interaction.followup.send(message)
+            await interaction.followup.send(embed=embed)
             log_command_completion("player maps", command_start_time, success=True, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})

@@ -7,11 +7,13 @@ psycopg2-binary~=2.9.11
 python-dotenv~=1.2
 
 # Discord API library
-discord.py>=2.3.0
+discord.py~=2.3.0
 
 # Caching library for player ID storage
-cachetools==6.2.4
+cachetools~=6.2
 
 # Async PostgreSQL driver for non-blocking database operations
-asyncpg~=0.31
+asyncpg==0.31
 
+# Tabulate library for pretty printing
+tabulate~=0.9
