@@ -9,7 +9,6 @@ from typing import List
 
 import discord
 from discord import app_commands
-from tabulate import tabulate
 
 from apps.discord_stats_bot.common.player_id_cache import get_player_id
 from apps.discord_stats_bot.common.shared import (
@@ -188,53 +187,53 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
             # Format results as a table
             display_player_name = found_player_name if found_player_name else player
             
-            # Prepare data for table formatting with blue formatting for the column
-            table_data = []
+            # Create Discord embed with pseudo-columns
+            embed = discord.Embed(
+                title=f"Best Matches on {proper_map_name}",
+                description=f"**Player:** {display_player_name}\n**Ordered by:** {order_display_name}",
+                color=0x00ff00  # Green color
+            )
+
+            # Prepare data for each column
+            kills_list = []
+            deaths_list = []
+            kdr_list = []
+            kpm_list = []
+
             for row in results:
                 kills = int(row['total_kills'])
                 deaths = int(row['total_deaths'])
                 kdr = float(row['kdr'])
                 kpm = float(row['kpm'])
 
-                # Format start_time (timestamp to readable date)
-                start_time_val = row['start_time']
-                if isinstance(start_time_val, datetime):
-                    start_time_str = start_time_val.strftime("%Y-%m-%d")
-                else:
-                    start_time_str = str(start_time_val)
+                kills_list.append(f"`{kills}`")
+                deaths_list.append(f"`{deaths}`")
+                kdr_list.append(f"`{kdr:.2f}`")
+                kpm_list.append(f"`{kpm:.2f}`")
 
-                # Format kills with inline code (appears blue-ish in Discord) for visual distinction
-                table_data.append([
-                    f"`{kills}`",  # Kills column with inline code formatting
-                    deaths,
-                    f"{kdr:.2f}",
-                    f"{kpm:.2f}",
-                    start_time_str
-                ])
-
-            # Headers with Date column and without Map Name and rank columns
-            headers = ["Kills", "Deaths", "K/D", "KPM", "Date"]
-            
-            # Build table using tabulate with github format (single-space padding, auto-expanding columns)
-            table_str = tabulate(
-                table_data,
-                headers=headers,
-                tablefmt="github"
-            )
-            
-            # Create Discord embed
-            embed = discord.Embed(
-                title=f"Best Matches on {proper_map_name}",
-                description=f"**Player:** {display_player_name}\n**Ordered by:** {order_display_name}"
-            )
-            
-            # Add table as a code block in the embed description or field
-            # Discord embed description limit is 4096 characters, field value limit is 1024
-            # We'll use a field for the table since it's cleaner
+            # Add columns as inline fields
             embed.add_field(
-                name="Match Results",
-                value=f"```\n{table_str}\n```",
-                inline=False
+                name="Kills",
+                value="\n".join(kills_list),
+                inline=True
+            )
+
+            embed.add_field(
+                name="Deaths",
+                value="\n".join(deaths_list),
+                inline=True
+            )
+
+            embed.add_field(
+                name="K/D",
+                value="\n".join(kdr_list),
+                inline=True
+            )
+
+            embed.add_field(
+                name="KPM",
+                value="\n".join(kpm_list),
+                inline=True
             )
 
             await interaction.followup.send(embed=embed)
