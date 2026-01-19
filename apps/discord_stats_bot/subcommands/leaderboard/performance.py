@@ -86,12 +86,12 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
         stat_config = {
             "kdr": {
                 "column": "kill_death_ratio",
-                "display_name": "KDR (Kill/Death Ratio)",
+                "display_name": "KDR",
                 "format": "{:.2f}"
             },
             "kpm": {
                 "column": "kills_per_minute",
-                "display_name": "KPM (Kills per Minute)",
+                "display_name": "KPM",
                 "format": "{:.2f}"
             },
             "dpm": {

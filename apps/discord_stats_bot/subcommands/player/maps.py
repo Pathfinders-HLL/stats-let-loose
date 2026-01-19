@@ -106,7 +106,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
         try:
             order_by_lower = validate_choice_parameter(
                 "order by", order_by, {"kills", "kdr", "kpm"},
-                ["Kills", "KDR (Kill-Death Ratio)", "KPM (Kills Per Minute)"]
+                ["Kills", "KDR", "KPM"]
             )
         except ValueError as e:
             await interaction.followup.send(str(e))

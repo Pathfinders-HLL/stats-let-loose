@@ -82,12 +82,12 @@ def register_performance_subcommand(player_group: app_commands.Group, channel_ch
         stat_config = {
             "kpm": {
                 "column": "kills_per_minute",
-                "display_name": "KPM (Kills Per Minute)",
+                "display_name": "KPM",
                 "format": "{:.2f}"
             },
             "kdr": {
                 "column": "kill_death_ratio",
-                "display_name": "KDR (Kill-Death Ratio)",
+                "display_name": "KDR KDR",
                 "format": "{:.2f}"
             },
             "dpm": {
