@@ -87,6 +87,42 @@ CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_artillery_kills
 ON pathfinder_stats.player_match_stats(player_id, artillery_kills DESC) 
 WHERE artillery_kills > 0;
 
+-- Optimize: Window function queries for score columns (PARTITION BY player_id ORDER BY column DESC)
+-- Used in: /leaderboard contributions command - speeds up ROW_NUMBER() window function
+-- These indexes help with sorting within each player partition
+CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_combat_score 
+ON pathfinder_stats.player_match_stats(player_id, combat_score DESC) 
+WHERE combat_score > 0;
+
+CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_offense_score 
+ON pathfinder_stats.player_match_stats(player_id, offense_score DESC) 
+WHERE offense_score > 0;
+
+CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_defense_score 
+ON pathfinder_stats.player_match_stats(player_id, defense_score DESC) 
+WHERE defense_score > 0;
+
+CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_support_score 
+ON pathfinder_stats.player_match_stats(player_id, support_score DESC) 
+WHERE support_score > 0;
+
+-- Optimize: Filtering by time_played >= 2700 (45+ minutes)
+-- Used in: /leaderboard performance and /player performance commands
+CREATE INDEX IF NOT EXISTS idx_player_match_stats_time_played 
+ON pathfinder_stats.player_match_stats(time_played) 
+WHERE time_played >= 2700;
+
+-- Optimize: Composite index for match_history with start_time for time filtering
+-- Used in: JOIN match_history ON match_id WHERE start_time >= $X
+-- Helps with time-filtered queries across all tables
+CREATE INDEX IF NOT EXISTS idx_match_history_match_id_start_time 
+ON pathfinder_stats.match_history(match_id, start_time DESC);
+
+-- Optimize: Case-insensitive map name searches
+-- Used in: /player maps command (WHERE LOWER(mh.map_name) = LOWER($X))
+CREATE INDEX IF NOT EXISTS idx_match_history_map_name_lower 
+ON pathfinder_stats.match_history(LOWER(map_name));
+
 -- Optimize: Case-insensitive player name searches
 -- Used in: Finding players by name (LOWER(player_name) = LOWER(%s))
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_name_lower 
@@ -95,18 +131,30 @@ ON pathfinder_stats.player_match_stats(LOWER(player_name));
 CREATE INDEX IF NOT EXISTS idx_player_kill_stats_player_name_lower 
 ON pathfinder_stats.player_kill_stats(LOWER(player_name));
 
--- Optimize: Pathfinder name filtering (LIKE 'PF%' or 'PFr%')
+-- Optimize: Pathfinder name filtering (ILIKE 'PFr |%' or 'PF |%')
 -- Used in: only_pathfinders parameter filtering
--- Note: 'PF%' pattern will match both 'PF |' and 'PFr |' since both start with 'PF'
--- Using text_pattern_ops operator class for optimal LIKE prefix matching performance
+-- Note: Queries use ILIKE which is case-insensitive, so we need LOWER() index
 -- Partial index only indexes rows matching the pattern, reducing index size
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_pathfinder_names 
-ON pathfinder_stats.player_match_stats(player_name text_pattern_ops) 
-WHERE player_name LIKE 'PF%';
+ON pathfinder_stats.player_match_stats(LOWER(player_name) text_pattern_ops) 
+WHERE LOWER(player_name) LIKE 'pf%';
 
 CREATE INDEX IF NOT EXISTS idx_player_kill_stats_pathfinder_names 
-ON pathfinder_stats.player_kill_stats(player_name text_pattern_ops) 
-WHERE player_name LIKE 'PF%';
+ON pathfinder_stats.player_kill_stats(LOWER(player_name) text_pattern_ops) 
+WHERE LOWER(player_name) LIKE 'pf%';
+
+-- Optimize: Pathfinder player_id lookups for ANY() array matching and GROUP BY aggregations
+-- Used in: only_pathfinders parameter filtering with player_id = ANY($array)
+-- Also used in: /leaderboard weapon and /leaderboard alltime commands for GROUP BY player_id
+-- Helps with array membership checks and aggregations
+CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id 
+ON pathfinder_stats.player_match_stats(player_id);
+
+CREATE INDEX IF NOT EXISTS idx_player_kill_stats_player_id 
+ON pathfinder_stats.player_kill_stats(player_id);
+
+CREATE INDEX IF NOT EXISTS idx_player_death_stats_player_id 
+ON pathfinder_stats.player_death_stats(player_id);
 
 -- ============================================================================
 -- Covering indexes for common SELECT patterns
@@ -176,8 +224,41 @@ COMMENT ON INDEX pathfinder_stats.idx_player_kill_stats_player_name_lower IS
 'Expression index for case-insensitive player name searches in kill stats';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_pathfinder_names IS 
-'Partial index for Pathfinder name filtering (LIKE PF% or PFr%)';
+'Partial index for Pathfinder name filtering (ILIKE with LOWER for case-insensitive matching)';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_kill_stats_pathfinder_names IS 
-'Partial index for Pathfinder name filtering in kill stats (LIKE PF% or PFr%)';
+'Partial index for Pathfinder name filtering in kill stats (ILIKE with LOWER for case-insensitive matching)';
+
+COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id IS 
+'Index for player_id lookups, used in pathfinder filtering with ANY() array matching';
+
+COMMENT ON INDEX pathfinder_stats.idx_player_kill_stats_player_id IS 
+'Index for player_id lookups in kill stats, used in pathfinder filtering and GROUP BY aggregations';
+
+COMMENT ON INDEX pathfinder_stats.idx_player_death_stats_player_id IS 
+'Index for player_id lookups in death stats, used in pathfinder filtering';
+
+COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id IS 
+'Index for player_id lookups in match stats, used in pathfinder filtering';
+
+COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_combat_score IS 
+'Composite index for window function queries in /leaderboard contributions (PARTITION BY player_id ORDER BY combat_score DESC)';
+
+COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_offense_score IS 
+'Composite index for window function queries in /leaderboard contributions with offense score';
+
+COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_defense_score IS 
+'Composite index for window function queries in /leaderboard contributions with defense score';
+
+COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_support_score IS 
+'Composite index for window function queries in /leaderboard contributions with support score';
+
+COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_time_played IS 
+'Partial index for filtering matches where player played 45+ minutes (time_played >= 2700)';
+
+COMMENT ON INDEX pathfinder_stats.idx_match_history_match_id_start_time IS 
+'Composite index for JOIN queries with time filtering (JOIN match_history ON match_id WHERE start_time >= X)';
+
+COMMENT ON INDEX pathfinder_stats.idx_match_history_map_name_lower IS 
+'Expression index for case-insensitive map name searches (LOWER function)';
 
