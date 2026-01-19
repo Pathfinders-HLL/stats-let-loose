@@ -248,7 +248,7 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
             filter_text = " (Pathfinders Only)" if only_pathfinders else ""
             embed = discord.Embed(
                 title=f"Top Players - {stat_label} {display_name}{time_period_text}{filter_text}",
-                color=discord.Color.blue()
+                color=discord.Color.from_rgb(16, 74, 0)
             )
             
             # Build three columns: rank, player name, stat value

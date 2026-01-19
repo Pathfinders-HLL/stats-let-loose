@@ -142,7 +142,7 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
             filter_text = " (Pathfinders Only)" if only_pathfinders else ""
             embed = discord.Embed(
                 title=f"Top Players - {weapon_category} (All Time{filter_text})",
-                color=discord.Color.blue()
+                color=discord.Color.from_rgb(16, 74, 0)
             )
             
             # Build three columns: rank, player name, kills

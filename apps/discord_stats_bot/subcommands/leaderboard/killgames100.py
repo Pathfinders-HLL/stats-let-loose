@@ -123,7 +123,7 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
             filter_text = " (Pathfinders Only)" if only_pathfinders else ""
             embed = discord.Embed(
                 title=f"Top Players - Most 100+ Kill Games{filter_text}",
-                color=discord.Color.blue()
+                color=discord.Color.from_rgb(16, 74, 0)
             )
             
             # Build three columns: rank, player name, games
