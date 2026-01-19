@@ -287,8 +287,8 @@ def get_pathfinder_player_ids() -> Set[str]:
 def create_time_filter_params(over_last_days: int) -> Tuple[str, list, str]:
     """Build time filter SQL clause, params list, and display text."""
     if over_last_days > 0:
-        from datetime import datetime, timedelta
-        time_threshold = datetime.utcnow() - timedelta(days=over_last_days)
+        from datetime import datetime, timedelta, timezone
+        time_threshold = datetime.now(timezone.utc) - timedelta(days=over_last_days)
         time_filter = "AND mh.start_time >= $1"
         query_params = [time_threshold]
         time_period_text = f"  over the last {over_last_days} day{'s' if over_last_days != 1 else ''}"

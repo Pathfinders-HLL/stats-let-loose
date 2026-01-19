@@ -4,7 +4,6 @@ Player weapon subcommand - Get total kills for a player by weapon category.
 
 import logging
 import time
-from datetime import datetime, timedelta
 from typing import List
 
 import asyncpg
@@ -77,6 +76,7 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
             validate_over_last_days(over_last_days)
         except ValueError as e:
             await interaction.followup.send(str(e))
+            log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "player": player, "over_last_days": over_last_days})
             return
 
         # If player not provided, try to get stored one from cache
@@ -86,6 +86,7 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
                 player = stored_player_id
             else:
                 await interaction.followup.send("❌ No player ID provided and you haven't set one! Either provide a player ID/name, or use `/profile setid` to set a default.", ephemeral=True)
+                log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "player": player, "over_last_days": over_last_days})
                 return
 
         # If no weapon_category provided, default to "All Weapons"
@@ -102,6 +103,7 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
             # List available weapon categories
             available_categories = sorted(set(WEAPON_MAPPING.keys()))
             await interaction.followup.send(f"❌ Unknown weapon category: `{weapon_category}` Available categories: {', '.join(sorted(available_categories))}")
+            log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "player": player, "over_last_days": over_last_days})
             return
         
         # Get the friendly category name from the mapping with proper casing
@@ -135,6 +137,7 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
 
             if not player_id:
                 await interaction.followup.send(f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.")
+                log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "player": player, "over_last_days": over_last_days})
                 return
                     
             # Calculate time period filter
