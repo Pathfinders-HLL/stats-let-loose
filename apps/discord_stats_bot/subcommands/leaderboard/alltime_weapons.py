@@ -120,8 +120,8 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
             # Build log message
             log_msg = f"Querying all-time top kills for weapon: {weapon_category_lower} (column: {column_name})"
             if only_pathfinders:
-                if pathfinder_ids:
-                    log_msg += f" (Pathfinders only, {len(pathfinder_ids)} IDs from file)"
+                if pathfinder_ids_list:
+                    log_msg += f" (Pathfinders only, {len(pathfinder_ids_list)} IDs from file)"
                 else:
                     log_msg += " (Pathfinders only)"
             logger.info(log_msg)
@@ -138,22 +138,22 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
                 log_command_completion("leaderboard alltime", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "only_pathfinders": only_pathfinders})
                 return
             
-            # Format results
-            leaderboard_lines = []
+            # Format results as Discord embed with inline fields
             filter_text = " (Pathfinders Only)" if only_pathfinders else ""
-            leaderboard_lines.append(f"## Top Players - {weapon_category} (All Time{filter_text})\n")
+            embed = discord.Embed(
+                title=f"Top Players - {weapon_category} (All Time{filter_text})",
+                color=discord.Color.blue()
+            )
             
             for rank, row in enumerate(results, 1):
                 # Use player_name if available, otherwise use player_id
                 display_name = row['player_name'] if row['player_name'] else row['player_id']
-                leaderboard_lines.append(f"{rank}. **{display_name}** - {row['total_kills']:,} kills")
-        
-            # Discord message limit is 2000 characters
-            message = "\n".join(leaderboard_lines)
-            if len(message) > 2000:
-                # Truncate if needed
-                message = message[:1997] + "..."
+                embed.add_field(
+                    name=f"#{rank} {display_name}",
+                    value=f"{row['total_kills']:,} kills",
+                    inline=True
+                )
             
-            await interaction.followup.send(message)
+            await interaction.followup.send(embed=embed)
             log_command_completion("leaderboard alltime", command_start_time, success=True, interaction=interaction, kwargs={"weapon_category": weapon_category, "only_pathfinders": only_pathfinders})
 

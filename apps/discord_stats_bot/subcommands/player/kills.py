@@ -152,8 +152,7 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
                     pms.{escaped_column} as kill_count,
                     pms.total_kills,
                     pms.total_deaths,
-                    pms.kill_death_ratio as kdr,
-                    mh.match_duration
+                    pms.kill_death_ratio as kdr
                 FROM pathfinder_stats.player_match_stats pms
                 INNER JOIN pathfinder_stats.match_history mh
                     ON pms.match_id = mh.match_id

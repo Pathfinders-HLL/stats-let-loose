@@ -162,8 +162,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                     pms.defense_score,
                     pms.support_score,
                     pms.{escaped_order_column} as order_value,
-                    mh.start_time,
-                    mh.match_duration
+                    mh.start_time
                 FROM pathfinder_stats.player_match_stats pms
                 INNER JOIN pathfinder_stats.match_history mh
                     ON pms.match_id = mh.match_id

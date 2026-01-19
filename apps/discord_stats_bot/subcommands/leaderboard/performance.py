@@ -195,8 +195,7 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                     WITH player_stats AS (
                         SELECT 
                             pms.player_id,
-                            {aggregate_function}(pms.{escaped_column}) as avg_stat,
-                            COUNT(*) as match_count
+                            {aggregate_function}(pms.{escaped_column}) as avg_stat
                         {from_clause}
                         {player_stats_where}
                         GROUP BY pms.player_id
@@ -205,8 +204,7 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                     top_player_stats AS (
                         SELECT 
                             ps.player_id,
-                            ps.avg_stat,
-                            ps.match_count
+                            ps.avg_stat
                         FROM player_stats ps
                         ORDER BY ps.avg_stat DESC
                         LIMIT 25
@@ -214,8 +212,7 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                     SELECT 
                         tps.player_id,
                         COALESCE(rn.player_name, tps.player_id) as player_name,
-                        tps.avg_stat,
-                        tps.match_count
+                        tps.avg_stat
                     FROM top_player_stats tps
                     {lateral_join}
                     ORDER BY tps.avg_stat DESC
@@ -228,8 +225,8 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
             else:
                 log_msg += " (All Time)"
             if only_pathfinders:
-                if pathfinder_ids:
-                    log_msg += f" (Pathfinders only, {len(pathfinder_ids)} IDs from file)"
+                if pathfinder_ids_list:
+                    log_msg += f" (Pathfinders only, {len(pathfinder_ids_list)} IDs from file)"
                 else:
                     log_msg += " (Pathfinders only)"
             logger.info(log_msg)
@@ -246,27 +243,24 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                 log_command_completion("leaderboard performance", command_start_time, success=False, interaction=interaction, kwargs={"stat_type": stat_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
                 return
             
-            # Format results
-            leaderboard_lines = []
+            # Format results as Discord embed with inline fields
             stat_label = "Highest" if stat_type_lower in {"kill_streak", "death_streak"} else "Average"
             filter_text = " (Pathfinders Only)" if only_pathfinders else ""
-            leaderboard_lines.append(f"## Top Players - {stat_label} {display_name}{time_period_text}{filter_text}\n")
+            embed = discord.Embed(
+                title=f"Top Players - {stat_label} {display_name}{time_period_text}{filter_text}",
+                color=discord.Color.blue()
+            )
             
             for rank, row in enumerate(results, 1):
                 # Use player_name if available, otherwise use player_id
                 display_player_name = row['player_name'] if row['player_name'] else row['player_id']
                 # Format the average stat
                 formatted_stat = format_str.format(row['avg_stat'])
-                match_count = row['match_count']
-                leaderboard_lines.append(
-                    f"{rank}. **{display_player_name}** - {formatted_stat} ({match_count} match{'es' if match_count != 1 else ''})"
+                embed.add_field(
+                    name=f"#{rank} {display_player_name}",
+                    value=formatted_stat,
+                    inline=True
                 )
         
-            # Discord message limit is 2000 characters
-            message = "\n".join(leaderboard_lines)
-            if len(message) > 2000:
-                # Truncate if needed
-                message = message[:1997] + "..."
-            
-            await interaction.followup.send(message)
+            await interaction.followup.send(embed=embed)
             log_command_completion("leaderboard performance", command_start_time, success=True, interaction=interaction, kwargs={"stat_type": stat_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})

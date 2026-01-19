@@ -215,25 +215,23 @@ def register_kills_subcommand(leaderboard_group: app_commands.Group, channel_che
             log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs={"kill_type": kill_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
             return
 
-        # Format results
-        leaderboard_lines = []
+        # Format results as Discord embed with inline fields
         filter_text = " (Pathfinders Only)" if only_pathfinders else ""
-        leaderboard_lines.append(f"## Top Players - Sum of {display_name} from Top 25 Matches{time_period_text}{filter_text}\n")
+        embed = discord.Embed(
+            title=f"Top Players - Sum of {display_name} from Top 25 Matches{time_period_text}{filter_text}",
+            color=discord.Color.blue()
+        )
 
         for rank, row in enumerate(results, 1):
             # Use player_name if available, otherwise use player_id
             display_player_name = row['player_name'] if row['player_name'] else row['player_id']
             total_kills = row['total_kills_top25']
-            leaderboard_lines.append(
-                f"{rank}. **{display_player_name}** - {total_kills:,} {display_name.lower()}"
+            embed.add_field(
+                name=f"#{rank} {display_player_name}",
+                value=f"{total_kills:,} {display_name.lower()}",
+                inline=True
             )
 
-        # Discord message limit is 2000 characters
-        message = "\n".join(leaderboard_lines)
-        if len(message) > 2000:
-            # Truncate if needed
-            message = message[:1997] + "..."
-
-        await interaction.followup.send(message)
+        await interaction.followup.send(embed=embed)
         log_command_completion("leaderboard kills", command_start_time, success=True, interaction=interaction, kwargs={"kill_type": kill_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
 

@@ -84,7 +84,7 @@ def escape_sql_identifier(identifier: str) -> str:
 
 async def find_player_by_id_or_name(conn: asyncpg.Connection, player: str) -> Tuple[Optional[str], Optional[str]]:
     """Look up a player by ID or name. Returns (player_id, player_name) or (None, None)."""
-    player = player.strip()
+    player = str(player).strip()
     check_query = "SELECT 1 FROM pathfinder_stats.player_match_stats WHERE player_id = $1 LIMIT 1"
     player_exists = await conn.fetchval(check_query, player)
     
@@ -205,7 +205,7 @@ async def handle_command_errors(
         log_command_completion(command_name, start_time, success=False, interaction=interaction, kwargs=kwargs)
         error_msg = "❌ An unexpected error occurred. Go ask Gordon Bombay to fix this."
 
-    if not interaction.response.is_done():
+    if not interaction.response.is_done:
         await interaction.response.send_message(error_msg, ephemeral=use_ephemeral)
     else:
         await interaction.followup.send(error_msg, ephemeral=use_ephemeral)

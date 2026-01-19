@@ -136,8 +136,7 @@ def register_performance_subcommand(player_group: app_commands.Group, channel_ch
                     mh.start_time,
                     pms.{escaped_column},
                     pms.total_kills,
-                    pms.total_deaths,
-                    mh.match_duration
+                    pms.total_deaths
                 FROM pathfinder_stats.player_match_stats pms
                 INNER JOIN pathfinder_stats.match_history mh
                     ON pms.match_id = mh.match_id
@@ -166,8 +165,6 @@ def register_performance_subcommand(player_group: app_commands.Group, channel_ch
         for rank, row in enumerate(results, 1):
             stat_value = row[stat_column]
             formatted_stat = format_str.format(stat_value)
-            # Format duration (seconds to minutes)
-            duration_min = row['match_duration'] // 60 if row['match_duration'] else 0
             # Format start_time (timestamp to readable date)
             start_time_val = row['start_time']
             if isinstance(start_time_val, datetime):
@@ -177,7 +174,7 @@ def register_performance_subcommand(player_group: app_commands.Group, channel_ch
 
             summary_lines.append(
                 f"{rank}. **{row['map_name']}** - {formatted_stat} "
-                f"({row['total_kills']}K/{row['total_deaths']}D, {duration_min}min) - {start_time_str}"
+                f"({row['total_kills']}K/{row['total_deaths']}D) - {start_time_str}"
             )
 
         # Discord message limit is 2000 characters
