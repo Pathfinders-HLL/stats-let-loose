@@ -60,8 +60,8 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
     @player_group.command(name="kills", description="Get top 25 matches for a player by total kills (with kill type filtering)")
     @app_commands.describe(
         kill_type="The kill type to filter by (All Kills, Infantry Kills, Armor Kills, Artillery Kills)",
-        player="The player ID or player name (optional if you've set one with /profile setid)",
-        over_last_days="Number of days to look back (default: 30, use 0 for all-time)"
+        player="(Optional) The player ID or player name (optional if you've set one with /profile setid)",
+        over_last_days="(Optional) Number of days to look back (default: 30, use 0 for all-time)"
     )
     @app_commands.autocomplete(kill_type=kill_type_autocomplete)
     @command_wrapper("player kills", channel_check=channel_check)
@@ -202,25 +202,29 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
             # Headers for the table
             headers = ["#", "Map Name", "Kills", "Deaths", "K/D", "Date"]
             
-            # Build table using tabulate with github format (single-space padding, auto-expanding columns)
-            table_str = tabulate(
-                table_data,
-                headers=headers,
-                tablefmt="github"
-            )
+            # Build message, removing rows if needed to fit Discord's 2000 character limit
+            message_prefix_lines = [f"## Top 25 Matches - {display_player_name} ({display_name}){time_period_text}"]
             
-            # Format as standard message with code block
-            message_lines = []
-            message_lines.append(f"## Top 25 Matches - {display_player_name} ({display_name}){time_period_text}")
-            message_lines.append("```")
-            message_lines.append(table_str)
-            message_lines.append("```")
-            
-            message = "\n".join(message_lines)
-            
-            # Discord message limit is 2000 characters
-            if len(message) > 2000:
-                message = message[:1997] + "..."
+            # Try with all rows first
+            for num_rows in range(len(table_data), 0, -1):
+                table_str = tabulate(
+                    table_data[:num_rows],
+                    headers=headers,
+                    tablefmt="github"
+                )
+                
+                message_lines = message_prefix_lines.copy()
+                message_lines.append("```")
+                message_lines.append(table_str)
+                message_lines.append("```")
+                
+                if num_rows < len(table_data):
+                    message_lines.append(f"\n*Showing {num_rows} of {len(table_data)} matches (message length limit)*")
+                
+                message = "\n".join(message_lines)
+                
+                if len(message) <= 2000:
+                    break
 
             await interaction.followup.send(message)
             log_command_completion("player kills", command_start_time, success=True, interaction=interaction, kwargs={"kill_type": kill_type, "player": player, "over_last_days": over_last_days})

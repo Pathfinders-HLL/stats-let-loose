@@ -62,7 +62,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
     @app_commands.describe(
         map_name="The map name (e.g., 'Carentan', 'Stalingrad', 'Omaha Beach')",
         order_by="How to order results (Kills, KDR, or KPM)",
-        player="The player ID or player name (optional if you've set one with /profile setid)"
+        player="(Optional) The player ID or player name (optional if you've set one with /profile setid)"
     )
     @app_commands.autocomplete(map_name=map_name_autocomplete, order_by=order_by_autocomplete)
     @command_wrapper("player maps", channel_check=channel_check)
@@ -213,27 +213,33 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
             # Headers
             headers = ["Kills", "Deaths", "K/D", "KPM", "Date"]
             
-            # Build table using tabulate with github format (single-space padding, auto-expanding columns)
-            table_str = tabulate(
-                table_data,
-                headers=headers,
-                tablefmt="github"
-            )
+            # Build message, removing rows if needed to fit Discord's 2000 character limit
+            message_prefix_lines = [
+                f"## Best Matches on {proper_map_name}",
+                f"**Player:** {display_player_name}",
+                f"**Ordered by:** {order_display_name}\n"
+            ]
             
-            # Format as standard message with code block
-            message_lines = []
-            message_lines.append(f"## Best Matches on {proper_map_name}")
-            message_lines.append(f"**Player:** {display_player_name}")
-            message_lines.append(f"**Ordered by:** {order_display_name}\n")
-            message_lines.append("```")
-            message_lines.append(table_str)
-            message_lines.append("```")
-            
-            message = "\n".join(message_lines)
-            
-            # Discord message limit is 2000 characters
-            if len(message) > 2000:
-                message = message[:1997] + "..."
+            # Try with all rows first
+            for num_rows in range(len(table_data), 0, -1):
+                table_str = tabulate(
+                    table_data[:num_rows],
+                    headers=headers,
+                    tablefmt="github"
+                )
+                
+                message_lines = message_prefix_lines.copy()
+                message_lines.append("```")
+                message_lines.append(table_str)
+                message_lines.append("```")
+                
+                if num_rows < len(table_data):
+                    message_lines.append(f"\n*Showing {num_rows} of {len(table_data)} matches (message length limit)*")
+                
+                message = "\n".join(message_lines)
+                
+                if len(message) <= 2000:
+                    break
 
             await interaction.followup.send(message)
             log_command_completion("player maps", command_start_time, success=True, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})

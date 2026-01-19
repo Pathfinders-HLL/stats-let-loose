@@ -63,8 +63,8 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
     @player_group.command(name="weapon", description="Get total kills for a player by weapon category (defaults to all weapons)")
     @app_commands.describe(
         weapon_category="The weapon category (e.g., 'M1 Garand', 'Thompson', 'Sniper'). Defaults to all weapons if not specified.",
-        over_last_days="Number of days to look back (default: 30, use 0 for all-time)",
-        player="The player ID or player name (optional if you've set one with /profile setid)"
+        over_last_days="(Optional) Number of days to look back (default: 30, use 0 for all-time)",
+        player="(Optional) The player ID or player name (optional if you've set one with /profile setid)"
     )
     @app_commands.autocomplete(weapon_category=weapon_category_autocomplete_with_all)
     @command_wrapper("player weapon", channel_check=channel_check)
@@ -361,33 +361,32 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
         # Headers
         headers = ["Weapon", "Kills", "Rank"]
         
-        # Build table using tabulate with github format
-        table_str = tabulate(
-            table_data,
-            headers=headers,
-            tablefmt="github"
-        )
+        # Build message, removing rows if needed to fit Discord's 2000 character limit
+        message_prefix_lines = [
+            f"## All Weapons - {display_name}{time_period_text}",
+            "*Sorted by total kills (highest to lowest)*\n"
+        ]
         
-        # Format as standard message with code block
-        message_lines = []
-        message_lines.append(f"## All Weapons - {display_name}{time_period_text}")
-        message_lines.append("*Sorted by total kills (highest to lowest)*\n")
-        message_lines.append("```")
-        message_lines.append(table_str)
-        message_lines.append("```")
-        
-        message = "\n".join(message_lines)
-        
-        # Discord message limit is 2000 characters
-        if len(message) > 2000:
-            # Truncate if needed, but try to keep it readable
-            truncated = message[:1997] + "..."
-            # Try to cut at a line boundary
-            last_newline = truncated.rfind('\n')
-            if last_newline > 1800:  # Only if we can save a reasonable amount
-                message = truncated[:last_newline] + "\n..."
-            else:
-                message = truncated
+        # Try with all rows first
+        for num_rows in range(len(table_data), 0, -1):
+            table_str = tabulate(
+                table_data[:num_rows],
+                headers=headers,
+                tablefmt="github"
+            )
+            
+            message_lines = message_prefix_lines.copy()
+            message_lines.append("```")
+            message_lines.append(table_str)
+            message_lines.append("```")
+            
+            if num_rows < len(table_data):
+                message_lines.append(f"\n*Showing {num_rows} of {len(table_data)} weapons (message length limit)*")
+            
+            message = "\n".join(message_lines)
+            
+            if len(message) <= 2000:
+                break
         
         await interaction.followup.send(message)
         log_command_completion("player weapon", command_start_time, success=True, interaction=interaction, kwargs={"weapon_category": "All Weapons", "player": player, "over_last_days": over_last_days})
