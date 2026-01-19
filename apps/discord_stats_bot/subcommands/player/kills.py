@@ -183,16 +183,24 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
                 deaths = int(row['total_deaths'])
                 kdr = float(row['kdr'])
 
+                # Format start_time (timestamp to readable date)
+                start_time_val = row['start_time']
+                if isinstance(start_time_val, datetime):
+                    start_time_str = start_time_val.strftime("%Y-%m-%d")
+                else:
+                    start_time_str = str(start_time_val)
+
                 table_data.append([
                     rank,
                     row['map_name'],
                     kills,
                     deaths,
-                    f"{kdr:.2f}"
+                    f"{kdr:.2f}",
+                    start_time_str
                 ])
 
             # Headers for the table
-            headers = ["#", "Map Name", "Kills", "Deaths", "K/D"]
+            headers = ["#", "Map Name", "Kills", "Deaths", "K/D", "Date"]
             
             # Build message, removing rows if needed to fit Discord's 2000 character limit
             message_prefix_lines = [f"## Top 25 Matches - {display_player_name} ({display_name}){time_period_text}"]

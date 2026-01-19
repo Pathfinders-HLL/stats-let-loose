@@ -4,6 +4,7 @@ Player subcommand for top matches by performance metrics.
 
 import logging
 import time
+from datetime import datetime
 from typing import List
 
 import asyncpg
@@ -166,16 +167,24 @@ def register_performance_subcommand(player_group: app_commands.Group, channel_ch
             formatted_stat = format_str.format(stat_value)
             kills = int(row['total_kills'])
             deaths = int(row['total_deaths'])
+            
+            # Format start_time (timestamp to readable date)
+            start_time_val = row['start_time']
+            if isinstance(start_time_val, datetime):
+                start_time_str = start_time_val.strftime("%Y-%m-%d")
+            else:
+                start_time_str = str(start_time_val)
 
             table_data.append([
                 row['map_name'],
                 formatted_stat,
                 kills,
-                deaths
+                deaths,
+                start_time_str
             ])
 
         # Headers
-        headers = ["Map", display_name, "Kills", "Deaths"]
+        headers = ["Map", display_name, "Kills", "Deaths", "Date"]
         
         # Build message, removing rows if needed to fit Discord's 2000 character limit
         message_prefix_lines = [f"## Top 25 Matches - {display_player_name} ({display_name})"]
