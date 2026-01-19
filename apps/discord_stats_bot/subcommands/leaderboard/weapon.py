@@ -173,31 +173,41 @@ def register_weapon_subcommand(leaderboard_group: app_commands.Group, channel_ch
                 log_command_completion("leaderboard weapon", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "only_pathfinders": only_pathfinders, "over_last_days": over_last_days})
                 return
             
-            # Format results as Discord embed with table-like rows
+            # Format results as Discord embed with three column fields
             filter_text = " (Pathfinders Only)" if only_pathfinders else ""
             embed = discord.Embed(
                 title=f"Top Players - {weapon_category}{time_period_text}{filter_text}",
                 color=discord.Color.blue()
             )
             
-            # Build table rows
-            rows = []
+            # Build three columns: rank, player name, kills
+            rank_values = []
+            player_values = []
+            kills_values = []
+            
             for rank, row in enumerate(results, 1):
                 # Use player_name if available, otherwise use player_id
                 display_name = row['player_name'] if row['player_name'] else row['player_id']
-                # Format as: rank | player name | kills
-                rows.append(f"`#{rank:<3}` {display_name:<30} `{row['total_kills']:>6,}` kills")
+                rank_values.append(f"#{rank}")
+                player_values.append(display_name)
+                kills_values.append(f"{row['total_kills']:,}")
             
-            # Add rows in chunks to respect Discord's field value limit (1024 characters)
-            chunk_size = 10
-            for i in range(0, len(rows), chunk_size):
-                chunk = rows[i:i+chunk_size]
-                field_name = "Rankings" if i == 0 else f"Rankings (cont.)"
-                embed.add_field(
-                    name=field_name,
-                    value="\n".join(chunk),
-                    inline=False
-                )
+            # Add the three columns as inline fields (side-by-side)
+            embed.add_field(
+                name="Rank",
+                value="\n".join(rank_values),
+                inline=True
+            )
+            embed.add_field(
+                name="Player",
+                value="\n".join(player_values),
+                inline=True
+            )
+            embed.add_field(
+                name="Kills",
+                value="\n".join(kills_values),
+                inline=True
+            )
         
             await interaction.followup.send(embed=embed)
             log_command_completion("leaderboard weapon", command_start_time, success=True, interaction=interaction, kwargs={"weapon_category": weapon_category, "only_pathfinders": only_pathfinders, "over_last_days": over_last_days})
