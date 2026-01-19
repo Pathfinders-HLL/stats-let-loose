@@ -6,7 +6,6 @@ import logging
 import time
 from typing import List
 
-import asyncpg
 import discord
 from discord import app_commands
 
@@ -25,6 +24,8 @@ from apps.discord_stats_bot.common.shared import (
     build_from_clause_with_time_filter,
     build_where_clause,
 )
+from apps.discord_stats_bot.common.embed_builder import build_leaderboard_embed
+from apps.discord_stats_bot.common.constants import KILL_TYPE_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -90,27 +91,12 @@ def register_kills_subcommand(leaderboard_group: app_commands.Group, channel_che
             log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs={"kill_type": kill_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
             return
             
-        # Map kill type to column name and display name
-        kill_type_config = {
-            "all": {
-                "column": "total_kills",
-                "display_name": "All Kills"
-            },
-            "infantry": {
-                "column": "infantry_kills",
-                "display_name": "Infantry Kills"
-            },
-            "armor": {
-                "column": "armor_kills",
-                "display_name": "Armor Kills"
-            },
-            "artillery": {
-                "column": "artillery_kills",
-                "display_name": "Artillery Kills"
-            }
-        }
-
-        config = kill_type_config[kill_type_lower]
+        # Get kill type configuration from constants
+        config = KILL_TYPE_CONFIG.get(kill_type_lower)
+        if not config:
+            await interaction.followup.send(f"❌ Invalid kill type: {kill_type}")
+            log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs={"kill_type": kill_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
+            return
         kill_column = config["column"]
         display_name = config["display_name"]
 
@@ -215,41 +201,15 @@ def register_kills_subcommand(leaderboard_group: app_commands.Group, channel_che
             log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs={"kill_type": kill_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
             return
 
-        # Format results as Discord embed with three column fields
+        # Format results as Discord embed using shared utility
         filter_text = " (Pathfinders Only)" if only_pathfinders else ""
-        embed = discord.Embed(
-            title=f"Top Players - Sum of {display_name} from Top 25 Matches{time_period_text}{filter_text}",
-            color=discord.Color.from_rgb(16, 74, 0)
-        )
-
-        # Build three columns: rank, player name, kills
-        rank_values = []
-        player_values = []
-        kills_values = []
-
-        for rank, row in enumerate(results, 1):
-            # Use player_name if available, otherwise use player_id
-            display_player_name = row['player_name'] if row['player_name'] else row['player_id']
-            total_kills = row['total_kills_top25']
-            rank_values.append(f"#{rank}")
-            player_values.append(display_player_name)
-            kills_values.append(f"{total_kills:,}")
-
-        # Add the three columns as inline fields (side-by-side)
-        embed.add_field(
-            name="Rank",
-            value="\n".join(rank_values),
-            inline=True
-        )
-        embed.add_field(
-            name="Player",
-            value="\n".join(player_values),
-            inline=True
-        )
-        embed.add_field(
-            name=display_name,
-            value="\n".join(kills_values),
-            inline=True
+        embed = build_leaderboard_embed(
+            title=f"Top Players - Sum of {display_name} from Top 25 Matches{time_period_text}",
+            results=[dict(row) for row in results],  # Convert Record to dict
+            value_key="total_kills_top25",
+            value_label=display_name,
+            color=discord.Color.from_rgb(16, 74, 0),
+            filter_text=filter_text
         )
 
         await interaction.followup.send(embed=embed)

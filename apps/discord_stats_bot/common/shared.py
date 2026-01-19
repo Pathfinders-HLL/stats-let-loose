@@ -8,7 +8,7 @@ import os
 import time
 from functools import wraps
 from pathlib import Path
-from typing import Optional, Tuple, Callable, Any, Set
+from typing import Optional, Tuple, Callable, Any, Set, Dict, List
 
 import asyncpg
 import discord
@@ -52,6 +52,10 @@ async def get_readonly_db_pool() -> asyncpg.Pool:
         raise ValueError(f"Missing database config: {', '.join(missing)}")
     
     try:
+        async def setup_connection(conn):
+            """Set up connection defaults."""
+            await conn.execute("SET statement_timeout = '60s'")  # Prevent runaway queries
+        
         _db_pool = await asyncpg.create_pool(
             host=db_config.host,
             port=db_config.port,
@@ -61,6 +65,8 @@ async def get_readonly_db_pool() -> asyncpg.Pool:
             min_size=2,  # Minimum connections in pool
             max_size=10,  # Maximum connections in pool
             command_timeout=60,  # 60 second timeout for queries
+            max_inactive_connection_lifetime=300,  # Close idle connections after 5 min
+            setup=setup_connection,  # Set connection defaults
         )
         logger.info("Created async database connection pool")
         return _db_pool
@@ -259,7 +265,7 @@ def get_pathfinder_player_ids() -> Set[str]:
     
     common_dir = Path(__file__).parent
     file_path = common_dir / "pathfinder_player_ids.txt"
-    player_ids = set[str]()
+    player_ids: Set[str] = set()
     
     if not file_path.exists():
         logger.info(f"Player IDs file not found at {file_path}")
@@ -280,7 +286,7 @@ def get_pathfinder_player_ids() -> Set[str]:
         return player_ids
     except Exception as e:
         logger.error(f"Error loading player IDs: {e}", exc_info=True)
-        _pathfinder_player_ids = set[str]()
+        _pathfinder_player_ids = set()
         return _pathfinder_player_ids
 
 
@@ -289,6 +295,8 @@ def create_time_filter_params(over_last_days: int) -> Tuple[str, list, str]:
     if over_last_days > 0:
         from datetime import datetime, timedelta, timezone
         time_threshold = datetime.now(timezone.utc) - timedelta(days=over_last_days)
+        # Convert to naive datetime since database TIMESTAMP columns are timezone-naive
+        time_threshold = time_threshold.replace(tzinfo=None)
         time_filter = "AND mh.start_time >= $1"
         query_params = [time_threshold]
         time_period_text = f"  over the last {over_last_days} day{'s' if over_last_days != 1 else ''}"

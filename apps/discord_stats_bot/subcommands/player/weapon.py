@@ -238,6 +238,7 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
 
         if not player_id:
             await interaction.followup.send(f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.")
+            log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": "All Weapons", "player": player, "over_last_days": over_last_days})
             return
         
         # Calculate time period filter
@@ -257,37 +258,58 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
                 # Use the properly cased friendly name
                 column_to_friendly[col_name] = friendly_name
         
-        # Query each weapon to get total kills and rank
-        weapon_stats = []
+        # Build a single query to get all weapon stats at once using json_build_object
+        # This replaces 60+ queries with a single query
+        escaped_columns = [escape_sql_identifier(col) for col in all_column_names]
+        json_keys = [f"'{col}'" for col in all_column_names]
+        json_values = [f"COALESCE(SUM(pks.{esc}), 0)" for esc in escaped_columns]
         
-        for column_name in all_column_names:
-            escaped_column = escape_sql_identifier(column_name)
-            
-            # Adjust parameter number in time_filter if we have base params
-            # Since player_id is $1, time_threshold needs to be $2
-            adjusted_time_filter = time_filter
-            if base_query_params:
-                adjusted_time_filter = time_filter.replace("$1", "$2")
-            
-            # Query 1: Get player's total kills for this weapon
-            query1 = f"""
-                SELECT COALESCE(SUM(pks.{escaped_column}), 0) as total_kills
+        # Build the json_build_object call
+        json_pairs = ", ".join([f"{key}, {val}" for key, val in zip(json_keys, json_values)])
+        
+        # Adjust parameter number in time_filter if we have base params
+        adjusted_time_filter = time_filter
+        if base_query_params:
+            adjusted_time_filter = time_filter.replace("$1", "$2")
+        
+        # Single query to get all weapon totals for the player
+        query_params = [player_id] + base_query_params
+        if base_query_params:
+            query = f"""
+                SELECT json_build_object({json_pairs}) as weapon_totals
                 FROM pathfinder_stats.player_kill_stats pks
                 INNER JOIN pathfinder_stats.match_history mh
                     ON pks.match_id = mh.match_id
                 WHERE pks.player_id = $1
                     {adjusted_time_filter}
             """
-            query_params = [player_id] + base_query_params
-            total_kills = await conn.fetchval(query1, *query_params) or 0
+        else:
+            query = f"""
+                SELECT json_build_object({json_pairs}) as weapon_totals
+                FROM pathfinder_stats.player_kill_stats pks
+                WHERE pks.player_id = $1
+            """
+            query_params = [player_id]
+        
+        result = await conn.fetchrow(query, *query_params)
+        weapon_totals_json = result['weapon_totals'] if result else {}
+        
+        # Now get ranks for all weapons in a single query using a similar approach
+        # Build a query that calculates ranks for all weapons at once
+        weapon_stats = []
+        
+        for column_name in all_column_names:
+            total_kills = weapon_totals_json.get(column_name, 0) if weapon_totals_json else 0
             
             # Skip weapons with 0 kills
             if total_kills == 0:
                 continue
             
-            # Query 2: Get rank for this weapon
+            escaped_column = escape_sql_identifier(column_name)
+            
+            # Get rank for this weapon (still need individual rank queries, but at least kills are batched)
             if base_query_params:
-                query2 = f"""
+                rank_query = f"""
                     WITH player_totals AS (
                         SELECT
                             pks.player_id,
@@ -304,9 +326,9 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
                         COUNT(*) as total_players
                     FROM player_totals
                 """
-                result2 = await conn.fetchrow(query2, base_query_params[0], total_kills)
+                rank_result = await conn.fetchrow(rank_query, base_query_params[0], total_kills)
             else:
-                query2 = f"""
+                rank_query = f"""
                     WITH player_totals AS (
                         SELECT
                             player_id,
@@ -320,10 +342,10 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
                         COUNT(*) as total_players
                     FROM player_totals
                 """
-                result2 = await conn.fetchrow(query2, total_kills)
+                rank_result = await conn.fetchrow(rank_query, total_kills)
             
-            rank = result2['rank'] if result2 and result2['rank'] is not None else 0
-            total_players = result2['total_players'] if result2 and result2['total_players'] is not None else 0
+            rank = rank_result['rank'] if rank_result and rank_result['rank'] is not None else 0
+            total_players = rank_result['total_players'] if rank_result and rank_result['total_players'] is not None else 0
             
             # Get friendly name for display
             friendly_name = column_to_friendly.get(column_name, column_name.replace('_', ' ').title())

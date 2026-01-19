@@ -51,7 +51,8 @@ async def post_karabiner_stats():
             return
         
         # Calculate 7 days ago
-        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+        # Convert to naive datetime since database TIMESTAMP columns are timezone-naive
+        seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).replace(tzinfo=None)
         
         # Get pathfinder player IDs (always filter to pathfinders only)
         pathfinder_ids = get_pathfinder_player_ids()

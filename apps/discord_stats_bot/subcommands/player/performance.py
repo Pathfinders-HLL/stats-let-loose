@@ -21,6 +21,7 @@ from apps.discord_stats_bot.common.shared import (
     validate_choice_parameter,
     command_wrapper
 )
+from apps.discord_stats_bot.common.message_builder import build_table_message
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ def register_performance_subcommand(player_group: app_commands.Group, channel_ch
             },
             "kdr": {
                 "column": "kill_death_ratio",
-                "display_name": "KDR KDR",
+                "display_name": "KDR",
                 "format": "{:.2f}"
             },
             "dpm": {
@@ -186,29 +187,13 @@ def register_performance_subcommand(player_group: app_commands.Group, channel_ch
         # Headers
         headers = ["Map", display_name, "Kills", "Deaths", "Date"]
         
-        # Build message, removing rows if needed to fit Discord's 2000 character limit
-        message_prefix_lines = [f"## Top 25 Matches - {display_player_name} ({display_name})"]
-        
-        # Try with all rows first
-        for num_rows in range(len(table_data), 0, -1):
-            table_str = tabulate(
-                table_data[:num_rows],
-                headers=headers,
-                tablefmt="github"
-            )
-            
-            message_lines = message_prefix_lines.copy()
-            message_lines.append("```")
-            message_lines.append(table_str)
-            message_lines.append("```")
-            
-            if num_rows < len(table_data):
-                message_lines.append(f"\n*Showing {num_rows} of {len(table_data)} results (message length limit)*")
-            
-            message = "\n".join(message_lines)
-            
-            if len(message) <= 2000:
-                break
+        # Build message using shared utility
+        message = build_table_message(
+            title=f"## Top 25 Matches - {display_player_name} ({display_name})",
+            table_data=table_data,
+            headers=headers,
+            truncation_message="\n*Showing {num_rows} of {total_rows} results (message length limit)*"
+        )
 
         await interaction.followup.send(message)
         log_command_completion("player performance", command_start_time, success=True, interaction=interaction, kwargs={"stat_type": stat_type, "player": player})
