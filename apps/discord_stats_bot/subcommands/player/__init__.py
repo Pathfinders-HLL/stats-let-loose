@@ -4,7 +4,9 @@ from apps.discord_stats_bot.subcommands.player.contributions import register_con
 from apps.discord_stats_bot.subcommands.player.deaths import register_deaths_subcommand
 from apps.discord_stats_bot.subcommands.player.kills import register_kills_subcommand
 from apps.discord_stats_bot.subcommands.player.maps import register_maps_subcommand
+from apps.discord_stats_bot.subcommands.player.nemesis import register_nemesis_subcommand
 from apps.discord_stats_bot.subcommands.player.performance import register_performance_subcommand
+from apps.discord_stats_bot.subcommands.player.victim import register_victim_subcommand
 from apps.discord_stats_bot.subcommands.player.weapon import register_weapon_subcommand
 
 __all__ = [
@@ -14,4 +16,6 @@ __all__ = [
     'register_deaths_subcommand',
     'register_contributions_subcommand',
     'register_maps_subcommand',
+    'register_nemesis_subcommand',
+    'register_victim_subcommand',
 ]
