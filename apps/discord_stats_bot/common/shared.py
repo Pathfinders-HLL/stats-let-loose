@@ -85,11 +85,20 @@ def escape_sql_identifier(identifier: str) -> str:
 async def find_player_by_id_or_name(conn: asyncpg.Connection, player: str) -> Tuple[Optional[str], Optional[str]]:
     """Look up a player by ID or name. Returns (player_id, player_name) or (None, None)."""
     player = str(player).strip()
-    check_query = "SELECT 1 FROM pathfinder_stats.player_match_stats WHERE player_id = $1 LIMIT 1"
+    
+    # First, check if the input is a player_id by searching any of the tables
+    check_query = """
+        SELECT 1 FROM pathfinder_stats.player_match_stats WHERE player_id = $1
+        UNION ALL
+        SELECT 1 FROM pathfinder_stats.player_kill_stats WHERE player_id = $1
+        UNION ALL
+        SELECT 1 FROM pathfinder_stats.player_death_stats WHERE player_id = $1
+        LIMIT 1
+    """
     player_exists = await conn.fetchval(check_query, player)
     
     if player_exists:
-        # Get most recent player name
+        # Get most recent player name from player_match_stats (most reliable source)
         name_query = """
             SELECT DISTINCT ON (pms.player_id) pms.player_name
             FROM pathfinder_stats.player_match_stats pms
@@ -101,17 +110,26 @@ async def find_player_by_id_or_name(conn: asyncpg.Connection, player: str) -> Tu
         found_player_name = await conn.fetchval(name_query, player)
         return (player, found_player_name if found_player_name else player)
     
-    # If no results from player_id, try player_name
+    # If no results from player_id, try player_name across all three tables
+    # Using UNION DISTINCT to get unique player_ids efficiently
     find_player_query = """
         SELECT DISTINCT player_id
-        FROM pathfinder_stats.player_match_stats
-        WHERE LOWER(player_name) = LOWER($1)
+        FROM (
+            SELECT player_id FROM pathfinder_stats.player_match_stats
+            WHERE player_name ILIKE $1 OR LOWER(player_name) = LOWER($1)
+            UNION
+            SELECT player_id FROM pathfinder_stats.player_kill_stats
+            WHERE player_name ILIKE $1 OR LOWER(player_name) = LOWER($1)
+            UNION
+            SELECT player_id FROM pathfinder_stats.player_death_stats
+            WHERE player_name ILIKE $1 OR LOWER(player_name) = LOWER($1)
+        ) combined_results
         LIMIT 1
     """
     found_player_id = await conn.fetchval(find_player_query, player)
     
     if found_player_id:
-        # Get most recent player name
+        # Get most recent player name from player_match_stats (most reliable source)
         name_query = """
             SELECT DISTINCT ON (pms.player_id) pms.player_name
             FROM pathfinder_stats.player_match_stats pms
