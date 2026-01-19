@@ -119,22 +119,42 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
                 log_command_completion("leaderboard 100killgames", command_start_time, success=False, interaction=interaction, kwargs={"only_pathfinders": only_pathfinders})
                 return
             
-            # Format results as Discord embed with inline fields
+            # Format results as Discord embed with three column fields
             filter_text = " (Pathfinders Only)" if only_pathfinders else ""
             embed = discord.Embed(
                 title=f"Top Players - Most 100+ Kill Games{filter_text}",
                 color=discord.Color.blue()
             )
             
+            # Build three columns: rank, player name, games
+            rank_values = []
+            player_values = []
+            games_values = []
+            
             for rank, row in enumerate(results, 1):
                 # Use player_name if available, otherwise use player_id
                 display_name = row['player_name'] if row['player_name'] else row['player_id']
                 game_count = row['game_count']
-                embed.add_field(
-                    name=f"#{rank} {display_name}",
-                    value=f"{game_count:,} game{'s' if game_count != 1 else ''}",
-                    inline=True
-                )
+                rank_values.append(f"#{rank}")
+                player_values.append(display_name)
+                games_values.append(f"{game_count:,}")
+            
+            # Add the three columns as inline fields (side-by-side)
+            embed.add_field(
+                name="Rank",
+                value="\n".join(rank_values),
+                inline=True
+            )
+            embed.add_field(
+                name="Player",
+                value="\n".join(player_values),
+                inline=True
+            )
+            embed.add_field(
+                name="Games",
+                value="\n".join(games_values),
+                inline=True
+            )
         
             await interaction.followup.send(embed=embed)
             log_command_completion("leaderboard 100killgames", command_start_time, success=True, interaction=interaction, kwargs={"only_pathfinders": only_pathfinders})

@@ -138,21 +138,41 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
                 log_command_completion("leaderboard alltime", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "only_pathfinders": only_pathfinders})
                 return
             
-            # Format results as Discord embed with inline fields
+            # Format results as Discord embed with three column fields
             filter_text = " (Pathfinders Only)" if only_pathfinders else ""
             embed = discord.Embed(
                 title=f"Top Players - {weapon_category} (All Time{filter_text})",
                 color=discord.Color.blue()
             )
             
+            # Build three columns: rank, player name, kills
+            rank_values = []
+            player_values = []
+            kills_values = []
+            
             for rank, row in enumerate(results, 1):
                 # Use player_name if available, otherwise use player_id
                 display_name = row['player_name'] if row['player_name'] else row['player_id']
-                embed.add_field(
-                    name=f"#{rank} {display_name}",
-                    value=f"{row['total_kills']:,} kills",
-                    inline=True
-                )
+                rank_values.append(f"#{rank}")
+                player_values.append(display_name)
+                kills_values.append(f"{row['total_kills']:,}")
+            
+            # Add the three columns as inline fields (side-by-side)
+            embed.add_field(
+                name="Rank",
+                value="\n".join(rank_values),
+                inline=True
+            )
+            embed.add_field(
+                name="Player",
+                value="\n".join(player_values),
+                inline=True
+            )
+            embed.add_field(
+                name="Kills",
+                value="\n".join(kills_values),
+                inline=True
+            )
             
             await interaction.followup.send(embed=embed)
             log_command_completion("leaderboard alltime", command_start_time, success=True, interaction=interaction, kwargs={"weapon_category": weapon_category, "only_pathfinders": only_pathfinders})

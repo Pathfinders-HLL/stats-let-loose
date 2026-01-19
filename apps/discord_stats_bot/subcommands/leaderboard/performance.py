@@ -243,7 +243,7 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                 log_command_completion("leaderboard performance", command_start_time, success=False, interaction=interaction, kwargs={"stat_type": stat_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
                 return
             
-            # Format results as Discord embed with inline fields
+            # Format results as Discord embed with three column fields
             stat_label = "Highest" if stat_type_lower in {"kill_streak", "death_streak"} else "Average"
             filter_text = " (Pathfinders Only)" if only_pathfinders else ""
             embed = discord.Embed(
@@ -251,16 +251,36 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
                 color=discord.Color.blue()
             )
             
+            # Build three columns: rank, player name, stat value
+            rank_values = []
+            player_values = []
+            stat_values = []
+            
             for rank, row in enumerate(results, 1):
                 # Use player_name if available, otherwise use player_id
                 display_player_name = row['player_name'] if row['player_name'] else row['player_id']
                 # Format the average stat
                 formatted_stat = format_str.format(row['avg_stat'])
-                embed.add_field(
-                    name=f"#{rank} {display_player_name}",
-                    value=formatted_stat,
-                    inline=True
-                )
+                rank_values.append(f"#{rank}")
+                player_values.append(display_player_name)
+                stat_values.append(formatted_stat)
+            
+            # Add the three columns as inline fields (side-by-side)
+            embed.add_field(
+                name="Rank",
+                value="\n".join(rank_values),
+                inline=True
+            )
+            embed.add_field(
+                name="Player",
+                value="\n".join(player_values),
+                inline=True
+            )
+            embed.add_field(
+                name=display_name,
+                value="\n".join(stat_values),
+                inline=True
+            )
         
             await interaction.followup.send(embed=embed)
             log_command_completion("leaderboard performance", command_start_time, success=True, interaction=interaction, kwargs={"stat_type": stat_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})

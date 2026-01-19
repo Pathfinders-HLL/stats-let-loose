@@ -215,22 +215,42 @@ def register_contributions_subcommand(leaderboard_group: app_commands.Group, cha
             log_command_completion("leaderboard contributions", command_start_time, success=False, interaction=interaction, kwargs={"score_type": score_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
             return
                 
-        # Format results as Discord embed with inline fields
+        # Format results as Discord embed with three column fields
         filter_text = " (Pathfinders Only)" if only_pathfinders else ""
         embed = discord.Embed(
             title=f"Top Players - Sum of {display_name} from Top 25 Matches{time_period_text}{filter_text}",
             color=discord.Color.blue()
         )
         
+        # Build three columns: rank, player name, score
+        rank_values = []
+        player_values = []
+        score_values = []
+        
         for rank, row in enumerate(results, 1):
             # Use player_name if available, otherwise use player_id
             display_player_name = row['player_name'] if row['player_name'] else row['player_id']
             total_score = row['total_score_top25']
-            embed.add_field(
-                name=f"#{rank} {display_player_name}",
-                value=f"{total_score:,} {display_name.lower()}",
-                inline=True
-            )
+            rank_values.append(f"#{rank}")
+            player_values.append(display_player_name)
+            score_values.append(f"{total_score:,}")
+        
+        # Add the three columns as inline fields (side-by-side)
+        embed.add_field(
+            name="Rank",
+            value="\n".join(rank_values),
+            inline=True
+        )
+        embed.add_field(
+            name="Player",
+            value="\n".join(player_values),
+            inline=True
+        )
+        embed.add_field(
+            name=display_name,
+            value="\n".join(score_values),
+            inline=True
+        )
         
         await interaction.followup.send(embed=embed)
         log_command_completion("leaderboard contributions", command_start_time, success=True, interaction=interaction, kwargs={"score_type": score_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
