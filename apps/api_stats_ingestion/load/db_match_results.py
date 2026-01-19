@@ -6,6 +6,8 @@ This script:
 - Calls transform_player_stats_data() to get player statistics data
 - Inserts data into pathfinder_stats.match_history table
 - Inserts data into pathfinder_stats.player_match_stats table
+- Inserts data into pathfinder_stats.player_victim table
+- Inserts data into pathfinder_stats.player_nemesis table
 - Handles duplicate entries (ON CONFLICT DO NOTHING)
 - Provides progress feedback during insertion
 """
@@ -181,6 +183,62 @@ def check_existing_player_death_stats(
         params = [item for pair in batch for item in pair]
         cursor.execute(query, params)
         existing.update({(row[0], row[1]) for row in cursor.fetchall()})
+    
+    cursor.close()
+    return existing
+
+
+def check_existing_player_victim_stats(
+    conn: psycopg2.extensions.connection,
+    player_match_keys: List[tuple[str, int, str]],
+    batch_size: int = 10000,
+) -> set[tuple[str, int, str]]:
+    """Check which (player_id, match_id, victim_name) rows already exist in player_victim table."""
+    if not player_match_keys:
+        return set()
+    
+    cursor = conn.cursor()
+    existing = set()
+    
+    for i in range(0, len(player_match_keys), batch_size):
+        batch = player_match_keys[i : i + batch_size]
+        values_list = ",".join(["(%s, %s, %s)"] * len(batch))
+        query = f"""
+            SELECT player_id, match_id, victim_name
+            FROM pathfinder_stats.player_victim
+            WHERE (player_id, match_id, victim_name) IN (VALUES {values_list})
+        """
+        params = [item for triplet in batch for item in triplet]
+        cursor.execute(query, params)
+        existing.update({(row[0], row[1], row[2]) for row in cursor.fetchall()})
+    
+    cursor.close()
+    return existing
+
+
+def check_existing_player_nemesis_stats(
+    conn: psycopg2.extensions.connection,
+    player_match_keys: List[tuple[str, int, str]],
+    batch_size: int = 10000,
+) -> set[tuple[str, int, str]]:
+    """Check which (player_id, match_id, nemesis_name) rows already exist in player_nemesis table."""
+    if not player_match_keys:
+        return set()
+    
+    cursor = conn.cursor()
+    existing = set()
+    
+    for i in range(0, len(player_match_keys), batch_size):
+        batch = player_match_keys[i : i + batch_size]
+        values_list = ",".join(["(%s, %s, %s)"] * len(batch))
+        query = f"""
+            SELECT player_id, match_id, nemesis_name
+            FROM pathfinder_stats.player_nemesis
+            WHERE (player_id, match_id, nemesis_name) IN (VALUES {values_list})
+        """
+        params = [item for triplet in batch for item in triplet]
+        cursor.execute(query, params)
+        existing.update({(row[0], row[1], row[2]) for row in cursor.fetchall()})
     
     cursor.close()
     return existing
@@ -501,6 +559,222 @@ def insert_player_death_stats(
     return inserted_count, skipped_count
 
 
+def insert_player_victim_stats(
+    conn: psycopg2.extensions.connection,
+    player_stats: List[Dict[str, Any]],
+    batch_size: int,
+    skip_duplicates: bool = True,
+) -> tuple[int, int]:
+    """Insert player victim statistics into player_victim table."""
+    if not player_stats:
+        return 0, 0
+    
+    cursor = conn.cursor()
+    processed_records = []
+    
+    for stat in player_stats:
+        player_id = stat.get("player_id")
+        match_id = stat.get("match_id")
+        player_name = stat.get("player_name")
+        team = stat.get("team")
+        
+        if not all([player_id, match_id, player_name]):
+            continue
+        
+        raw_info = stat.get("raw_info")
+        if raw_info and isinstance(raw_info, dict):
+            most_killed = raw_info.get("most_killed", {})
+        else:
+            most_killed = stat.get("most_killed", {})
+        
+        if not isinstance(most_killed, dict) or not most_killed:
+            continue
+        
+        for victim_name, count in most_killed.items():
+            if not victim_name or not isinstance(count, (int, float)):
+                continue
+            
+            processed_records.append({
+                "player_id": player_id,
+                "match_id": match_id,
+                "player_name": player_name,
+                "team": team,
+                "victim_name": str(victim_name),
+                "kill_count": int(count),
+            })
+    
+    if not processed_records:
+        cursor.close()
+        return 0, 0
+    
+    if skip_duplicates:
+        player_match_keys = [
+            (record["player_id"], record["match_id"], record["victim_name"])
+            for record in processed_records
+        ]
+        existing_keys = check_existing_player_victim_stats(conn, player_match_keys)
+        
+        records_to_insert = [
+            record for record in processed_records
+            if (record["player_id"], record["match_id"], record["victim_name"]) not in existing_keys
+        ]
+        
+        skipped_count = len(processed_records) - len(records_to_insert)
+        
+        if not records_to_insert:
+            cursor.close()
+            return 0, skipped_count
+        
+        processed_records = records_to_insert
+    else:
+        skipped_count = 0
+    
+    columns = ["player_id", "match_id", "player_name", "team", "victim_name", "kill_count"]
+    columns_str = ", ".join(columns)
+    placeholders_str = ", ".join([f"%({col})s" for col in columns])
+    
+    if skip_duplicates:
+        insert_query = f"""
+            INSERT INTO pathfinder_stats.player_victim ({columns_str})
+            VALUES ({placeholders_str})
+            ON CONFLICT (player_id, match_id, victim_name) DO NOTHING
+        """
+    else:
+        insert_query = f"""
+            INSERT INTO pathfinder_stats.player_victim ({columns_str})
+            VALUES ({placeholders_str})
+        """
+    
+    inserted_count = 0
+    total_records = len(processed_records)
+    print(f"Inserting {total_records} player victim records (batch size: {batch_size})...")
+    if skipped_count > 0:
+        print(f"  Skipped {skipped_count} existing records (checked before insert)")
+    
+    for i in range(0, len(processed_records), batch_size):
+        batch = processed_records[i : i + batch_size]
+        try:
+            execute_batch(cursor, insert_query, batch, page_size=batch_size)
+            conn.commit()
+            batch_inserted = cursor.rowcount
+            inserted_count += batch_inserted
+            skipped_count += len(batch) - batch_inserted
+        except psycopg2.Error as e:
+            conn.rollback()
+            print(f"Error inserting victim batch {i//batch_size + 1}: {e}")
+    
+    cursor.close()
+    return inserted_count, skipped_count
+
+
+def insert_player_nemesis_stats(
+    conn: psycopg2.extensions.connection,
+    player_stats: List[Dict[str, Any]],
+    batch_size: int,
+    skip_duplicates: bool = True,
+) -> tuple[int, int]:
+    """Insert player nemesis statistics into player_nemesis table."""
+    if not player_stats:
+        return 0, 0
+    
+    cursor = conn.cursor()
+    processed_records = []
+    
+    for stat in player_stats:
+        player_id = stat.get("player_id")
+        match_id = stat.get("match_id")
+        player_name = stat.get("player_name")
+        team = stat.get("team")
+        
+        if not all([player_id, match_id, player_name]):
+            continue
+        
+        raw_info = stat.get("raw_info")
+        if raw_info and isinstance(raw_info, dict):
+            death_by = raw_info.get("death_by", {})
+        else:
+            death_by = stat.get("death_by", {})
+        
+        if not isinstance(death_by, dict) or not death_by:
+            continue
+        
+        for nemesis_name, count in death_by.items():
+            if not nemesis_name or not isinstance(count, (int, float)):
+                continue
+            
+            processed_records.append({
+                "player_id": player_id,
+                "match_id": match_id,
+                "player_name": player_name,
+                "team": team,
+                "nemesis_name": str(nemesis_name),
+                "death_count": int(count),
+            })
+    
+    if not processed_records:
+        cursor.close()
+        return 0, 0
+    
+    if skip_duplicates:
+        player_match_keys = [
+            (record["player_id"], record["match_id"], record["nemesis_name"])
+            for record in processed_records
+        ]
+        existing_keys = check_existing_player_nemesis_stats(conn, player_match_keys)
+        
+        records_to_insert = [
+            record for record in processed_records
+            if (record["player_id"], record["match_id"], record["nemesis_name"]) not in existing_keys
+        ]
+        
+        skipped_count = len(processed_records) - len(records_to_insert)
+        
+        if not records_to_insert:
+            cursor.close()
+            return 0, skipped_count
+        
+        processed_records = records_to_insert
+    else:
+        skipped_count = 0
+    
+    columns = ["player_id", "match_id", "player_name", "team", "nemesis_name", "death_count"]
+    columns_str = ", ".join(columns)
+    placeholders_str = ", ".join([f"%({col})s" for col in columns])
+    
+    if skip_duplicates:
+        insert_query = f"""
+            INSERT INTO pathfinder_stats.player_nemesis ({columns_str})
+            VALUES ({placeholders_str})
+            ON CONFLICT (player_id, match_id, nemesis_name) DO NOTHING
+        """
+    else:
+        insert_query = f"""
+            INSERT INTO pathfinder_stats.player_nemesis ({columns_str})
+            VALUES ({placeholders_str})
+        """
+    
+    inserted_count = 0
+    total_records = len(processed_records)
+    print(f"Inserting {total_records} player nemesis records (batch size: {batch_size})...")
+    if skipped_count > 0:
+        print(f"  Skipped {skipped_count} existing records (checked before insert)")
+    
+    for i in range(0, len(processed_records), batch_size):
+        batch = processed_records[i : i + batch_size]
+        try:
+            execute_batch(cursor, insert_query, batch, page_size=batch_size)
+            conn.commit()
+            batch_inserted = cursor.rowcount
+            inserted_count += batch_inserted
+            skipped_count += len(batch) - batch_inserted
+        except psycopg2.Error as e:
+            conn.rollback()
+            print(f"Error inserting nemesis batch {i//batch_size + 1}: {e}")
+    
+    cursor.close()
+    return inserted_count, skipped_count
+
+
 def insert_match_history(
     conn: psycopg2.extensions.connection,
     matches: List[Dict[str, Any]],
@@ -772,6 +1046,7 @@ def main(
     update_match_history: bool = True,
     update_player_stats: bool = True,
     update_weapon_stats: bool = True,
+    update_opponent_stats: bool = True,
 ) -> None:
     """Main function to transform and insert match results data."""
     try:
@@ -853,7 +1128,7 @@ def main(
                 print("Skipping weapon stats insertion")
                 update_weapon_stats = False
         
-        if update_player_stats or update_weapon_stats:
+        if update_player_stats or update_weapon_stats or update_opponent_stats:
             print("\n" + "=" * 60)
             print("TRANSFORMING AND INSERTING PLAYER STATISTICS DATA")
             print("=" * 60)
@@ -867,6 +1142,10 @@ def main(
             total_kill_stats_skipped = 0
             total_death_stats_inserted = 0
             total_death_stats_skipped = 0
+            total_victim_stats_inserted = 0
+            total_victim_stats_skipped = 0
+            total_nemesis_stats_inserted = 0
+            total_nemesis_stats_skipped = 0
             
             for batch in transform_player_stats_data_batched(batch_size=transform_batch_size):
                 batch_count += 1
@@ -887,6 +1166,21 @@ def main(
                         )
                         total_death_stats_inserted += death_inserted
                         total_death_stats_skipped += death_skipped
+                    
+                    if update_opponent_stats:
+                        victim_inserted, victim_skipped = insert_player_victim_stats(
+                            conn, batch, ingestion_config.player_stats_batch_size,
+                            skip_duplicates=skip_duplicates
+                        )
+                        total_victim_stats_inserted += victim_inserted
+                        total_victim_stats_skipped += victim_skipped
+                        
+                        nemesis_inserted, nemesis_skipped = insert_player_nemesis_stats(
+                            conn, batch, ingestion_config.player_stats_batch_size,
+                            skip_duplicates=skip_duplicates
+                        )
+                        total_nemesis_stats_inserted += nemesis_inserted
+                        total_nemesis_stats_skipped += nemesis_skipped
                     
                     if update_player_stats:
                         inserted, skipped = insert_player_stats(
@@ -933,6 +1227,13 @@ def main(
                 print(f"\nTotal Weapon Stats Summary:")
                 print(f"  Kill stats - Inserted: {total_kill_stats_inserted}, Skipped: {total_kill_stats_skipped}")
                 print(f"  Death stats - Inserted: {total_death_stats_inserted}, Skipped: {total_death_stats_skipped}")
+            
+            if update_opponent_stats:
+                print(f"\nPlayer Victim Stats Summary:")
+                print(f"  Inserted: {total_victim_stats_inserted}, Skipped: {total_victim_stats_skipped}")
+                
+                print(f"\nPlayer Nemesis Stats Summary:")
+                print(f"  Inserted: {total_nemesis_stats_inserted}, Skipped: {total_nemesis_stats_skipped}")
         
         print("\n" + "=" * 60)
         print("DATABASE UPDATE COMPLETE")
@@ -981,11 +1282,13 @@ if __name__ == "__main__":
         update_player_stats = True
     
     update_weapon_stats = update_player_stats
+    update_opponent_stats = update_player_stats
     
     main(
         skip_duplicates=not args.no_skip_duplicates,
         update_match_history=update_match_history,
         update_player_stats=update_player_stats,
         update_weapon_stats=update_weapon_stats,
+        update_opponent_stats=update_opponent_stats,
     )
 
