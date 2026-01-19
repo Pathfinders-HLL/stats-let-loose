@@ -4,7 +4,6 @@ Player maps subcommand - Get a player's best match stats for a specific map.
 
 import logging
 import time
-from datetime import datetime
 from typing import List
 
 import discord
@@ -195,23 +194,15 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                 kdr = float(row['kdr'])
                 kpm = float(row['kpm'])
 
-                # Format start_time (timestamp to readable date)
-                start_time_val = row['start_time']
-                if isinstance(start_time_val, datetime):
-                    start_time_str = start_time_val.strftime("%Y-%m-%d")
-                else:
-                    start_time_str = str(start_time_val)
-
                 table_data.append([
                     kills,
                     deaths,
                     f"{kdr:.2f}",
-                    f"{kpm:.2f}",
-                    start_time_str
+                    f"{kpm:.2f}"
                 ])
 
             # Headers
-            headers = ["Kills", "Deaths", "K/D", "KPM", "Date"]
+            headers = ["Kills", "Deaths", "K/D", "KPM"]
             
             # Build message, removing rows if needed to fit Discord's 2000 character limit
             message_prefix_lines = [
