@@ -223,7 +223,7 @@ async def handle_command_errors(
         log_command_completion(command_name, start_time, success=False, interaction=interaction, kwargs=kwargs)
         error_msg = "❌ An unexpected error occurred. Go ask Gordon Bombay to fix this."
 
-    if not interaction.response.is_done:
+    if not interaction.response.is_done():
         await interaction.response.send_message(error_msg, ephemeral=use_ephemeral)
     else:
         await interaction.followup.send(error_msg, ephemeral=use_ephemeral)
