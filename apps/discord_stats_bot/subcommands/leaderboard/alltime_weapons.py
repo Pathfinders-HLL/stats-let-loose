@@ -156,7 +156,7 @@ def register_alltime_weapons_subcommand(leaderboard_group: app_commands.Group, c
                 rank_values.append(f"#{rank}")
                 player_values.append(display_name)
                 kills_values.append(f"{row['total_kills']:,}")
-            
+        
             # Add the three columns as inline fields (side-by-side)
             embed.add_field(
                 name="Rank",

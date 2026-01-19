@@ -10,6 +10,7 @@ from typing import List
 import asyncpg
 import discord
 from discord import app_commands
+from tabulate import tabulate
 
 from apps.discord_stats_bot.common.shared import (
     get_readonly_db_pool,
@@ -341,22 +342,43 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
             )
             return
         
-        # Format results
+        # Format results as a table
         display_name = found_player_name if found_player_name else player
-        result_lines = []
-        result_lines.append(f"## All Weapons - {display_name}{time_period_text}\n")
-        result_lines.append(f"*Sorted by total kills (highest to lowest)*\n")
         
-        for rank, weapon_stat in enumerate(weapon_stats, 1):
-            rank_text = f"Rank **#{weapon_stat['rank']}**"
+        # Prepare data for table formatting
+        table_data = []
+        for weapon_stat in weapon_stats:
+            rank_text = f"#{weapon_stat['rank']}"
             if weapon_stat['total_players'] > 0:
-                rank_text += f" out of **{weapon_stat['total_players']}** players"
-            result_lines.append(
-                f"{rank}. **{weapon_stat['weapon']}** - {weapon_stat['kills']:,} total kills ({rank_text})"
-            )
+                rank_text += f"/{weapon_stat['total_players']}"
+            
+            table_data.append([
+                weapon_stat['weapon'],
+                weapon_stat['kills'],
+                rank_text
+            ])
+
+        # Headers
+        headers = ["Weapon", "Kills", "Rank"]
+        
+        # Build table using tabulate with github format
+        table_str = tabulate(
+            table_data,
+            headers=headers,
+            tablefmt="github"
+        )
+        
+        # Format as standard message with code block
+        message_lines = []
+        message_lines.append(f"## All Weapons - {display_name}{time_period_text}")
+        message_lines.append("*Sorted by total kills (highest to lowest)*\n")
+        message_lines.append("```")
+        message_lines.append(table_str)
+        message_lines.append("```")
+        
+        message = "\n".join(message_lines)
         
         # Discord message limit is 2000 characters
-        message = "\n".join(result_lines)
         if len(message) > 2000:
             # Truncate if needed, but try to keep it readable
             truncated = message[:1997] + "..."

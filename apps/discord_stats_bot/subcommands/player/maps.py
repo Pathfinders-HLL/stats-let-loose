@@ -9,6 +9,7 @@ from typing import List
 
 import discord
 from discord import app_commands
+from tabulate import tabulate
 
 from apps.discord_stats_bot.common.player_id_cache import get_player_id
 from apps.discord_stats_bot.common.shared import (
@@ -183,81 +184,56 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                 log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
                 return
 
-            # Format results as pseudo-columns in Discord embed
+            # Format results as a table
             display_player_name = found_player_name if found_player_name else player
             
-            # Define column widths for alignment
-            COLUMN_WIDTHS = {
-                'kills': 8,
-                'deaths': 8,
-                'kdr': 8,
-                'kpm': 8
-            }
-            
-            # Build header row
-            header_row = (
-                f"{'Kills':<{COLUMN_WIDTHS['kills']}} "
-                f"{'Deaths':<{COLUMN_WIDTHS['deaths']}} "
-                f"{'K/D':<{COLUMN_WIDTHS['kdr']}} "
-                f"{'KPM':<{COLUMN_WIDTHS['kpm']}}"
-            )
-            
-            # Build separator row
-            separator_row = (
-                f"{'-' * COLUMN_WIDTHS['kills']} "
-                f"{'-' * COLUMN_WIDTHS['deaths']} "
-                f"{'-' * COLUMN_WIDTHS['kdr']} "
-                f"{'-' * COLUMN_WIDTHS['kpm']}"
-            )
-            
-            # Build data rows
-            rows = [header_row, separator_row]
+            # Prepare data for table formatting
+            table_data = []
             for row in results:
                 kills = int(row['total_kills'])
                 deaths = int(row['total_deaths'])
                 kdr = float(row['kdr'])
                 kpm = float(row['kpm'])
-                
-                # Format each value with proper padding for column alignment
-                kills_str = f"{kills:<{COLUMN_WIDTHS['kills']}}"
-                deaths_str = f"{deaths:<{COLUMN_WIDTHS['deaths']}}"
-                kdr_str = f"{kdr:.2f}".ljust(COLUMN_WIDTHS['kdr'])
-                kpm_str = f"{kpm:.2f}".ljust(COLUMN_WIDTHS['kpm'])
-                
-                # Create row with all columns side-by-side
-                data_row = f"{kills_str} {deaths_str} {kdr_str} {kpm_str}"
-                rows.append(data_row)
+
+                # Format start_time (timestamp to readable date)
+                start_time_val = row['start_time']
+                if isinstance(start_time_val, datetime):
+                    start_time_str = start_time_val.strftime("%Y-%m-%d")
+                else:
+                    start_time_str = str(start_time_val)
+
+                table_data.append([
+                    kills,
+                    deaths,
+                    f"{kdr:.2f}",
+                    f"{kpm:.2f}",
+                    start_time_str
+                ])
+
+            # Headers
+            headers = ["Kills", "Deaths", "K/D", "KPM", "Date"]
             
-            # Join all rows with newlines
-            table_str = "\n".join(rows)
-            
-            # Create Discord embed
-            embed = discord.Embed(
-                title=f"Best Matches on {proper_map_name}",
-                description=f"**Player:** {display_player_name}\n**Ordered by:** {order_display_name}"
+            # Build table using tabulate with github format (single-space padding, auto-expanding columns)
+            table_str = tabulate(
+                table_data,
+                headers=headers,
+                tablefmt="github"
             )
             
-            # Add table as a code block in the embed field
-            # Discord embed field value limit is 1024 characters
-            # Split into multiple fields if needed (Discord allows up to 25 fields per embed)
-            max_field_length = 1000  # Leave some buffer
-            if len(table_str) <= max_field_length:
-                embed.add_field(
-                    name="Match Results",
-                    value=f"```\n{table_str}\n```",
-                    inline=False
-                )
-            else:
-                # Split into multiple fields if too long
-                chunk_size = max_field_length - 20  # Account for code block markers
-                chunks = [table_str[i:i+chunk_size] for i in range(0, len(table_str), chunk_size)]
-                for i, chunk in enumerate(chunks):
-                    field_name = "Match Results" if i == 0 else f"Match Results (cont.)"
-                    embed.add_field(
-                        name=field_name,
-                        value=f"```\n{chunk}\n```",
-                        inline=False
-                    )
+            # Format as standard message with code block
+            message_lines = []
+            message_lines.append(f"## Best Matches on {proper_map_name}")
+            message_lines.append(f"**Player:** {display_player_name}")
+            message_lines.append(f"**Ordered by:** {order_display_name}\n")
+            message_lines.append("```")
+            message_lines.append(table_str)
+            message_lines.append("```")
+            
+            message = "\n".join(message_lines)
+            
+            # Discord message limit is 2000 characters
+            if len(message) > 2000:
+                message = message[:1997] + "..."
 
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(message)
             log_command_completion("player maps", command_start_time, success=True, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})

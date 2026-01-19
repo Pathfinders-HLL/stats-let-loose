@@ -209,14 +209,16 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
                 tablefmt="github"
             )
             
-            summary_lines = []
-            summary_lines.append(f"## Top 25 Matches - {display_player_name} ({display_name}){time_period_text}")
-            summary_lines.append("```")
-            summary_lines.append(table_str)
-            summary_lines.append("```")
-
+            # Format as standard message with code block
+            message_lines = []
+            message_lines.append(f"## Top 25 Matches - {display_player_name} ({display_name}){time_period_text}")
+            message_lines.append("```")
+            message_lines.append(table_str)
+            message_lines.append("```")
+            
+            message = "\n".join(message_lines)
+            
             # Discord message limit is 2000 characters
-            message = "\n".join(summary_lines)
             if len(message) > 2000:
                 message = message[:1997] + "..."
 

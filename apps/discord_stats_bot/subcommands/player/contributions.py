@@ -10,6 +10,7 @@ from typing import List
 import asyncpg
 import discord
 from discord import app_commands
+from tabulate import tabulate
 
 from apps.discord_stats_bot.common.player_id_cache import get_player_id
 from apps.discord_stats_bot.common.shared import (
@@ -174,14 +175,16 @@ def register_contributions_subcommand(player_group: app_commands.Group, channel_
         # Calculate total score from top 25 matches
         total_score_top25 = sum(row['score_value'] for row in results)
 
-        # Format results
-        summary_lines = []
+        # Format results as a table
         display_player_name = found_player_name if found_player_name else player
-        summary_lines.append(f"## Top 25 Matches - {display_player_name} ({display_name}){time_period_text}\n")
-        summary_lines.append(f"**Total {display_name.lower()} in top 25 matches: {total_score_top25:,}**\n")
-
-        for rank, row in enumerate(results, 1):
-            score_value = row['score_value']
+        
+        # Prepare data for table formatting
+        table_data = []
+        for row in results:
+            score_value = int(row['score_value'])
+            kills = int(row['total_kills'])
+            deaths = int(row['total_deaths'])
+            
             # Format start_time (timestamp to readable date)
             start_time_val = row['start_time']
             if isinstance(start_time_val, datetime):
@@ -189,13 +192,35 @@ def register_contributions_subcommand(player_group: app_commands.Group, channel_
             else:
                 start_time_str = str(start_time_val)
 
-            summary_lines.append(
-                f"{rank}. **{row['map_name']}** - {score_value:,} {display_name.lower()} "
-                f"({row['total_kills']}K/{row['total_deaths']}D) - {start_time_str}"
-            )
+            table_data.append([
+                row['map_name'],
+                score_value,
+                kills,
+                deaths,
+                start_time_str
+            ])
 
+        # Headers
+        headers = ["Map", display_name, "Kills", "Deaths", "Date"]
+        
+        # Build table using tabulate with github format
+        table_str = tabulate(
+            table_data,
+            headers=headers,
+            tablefmt="github"
+        )
+        
+        # Format as standard message with code block
+        message_lines = []
+        message_lines.append(f"## Top 25 Matches - {display_player_name} ({display_name}){time_period_text}")
+        message_lines.append(f"**Total {display_name.lower()} in top 25 matches: {total_score_top25:,}**\n")
+        message_lines.append("```")
+        message_lines.append(table_str)
+        message_lines.append("```")
+        
+        message = "\n".join(message_lines)
+        
         # Discord message limit is 2000 characters
-        message = "\n".join(summary_lines)
         if len(message) > 2000:
             message = message[:1997] + "..."
 

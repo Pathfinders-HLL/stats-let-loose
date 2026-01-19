@@ -138,7 +138,7 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
                 rank_values.append(f"#{rank}")
                 player_values.append(display_name)
                 games_values.append(f"{game_count:,}")
-            
+        
             # Add the three columns as inline fields (side-by-side)
             embed.add_field(
                 name="Rank",
@@ -155,7 +155,7 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
                 value="\n".join(games_values),
                 inline=True
             )
-        
+            
             await interaction.followup.send(embed=embed)
             log_command_completion("leaderboard 100killgames", command_start_time, success=True, interaction=interaction, kwargs={"only_pathfinders": only_pathfinders})
 
