@@ -2,6 +2,7 @@
 Player weapon subcommand - Get total kills for a player by weapon category.
 """
 
+import json
 import logging
 import time
 from typing import List
@@ -293,6 +294,9 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
         
         result = await conn.fetchrow(query, *query_params)
         weapon_totals_json = result['weapon_totals'] if result else {}
+        # Handle case where asyncpg returns JSON as string
+        if isinstance(weapon_totals_json, str):
+            weapon_totals_json = json.loads(weapon_totals_json)
         
         # Now get ranks for all weapons in a single query using a similar approach
         # Build a query that calculates ranks for all weapons at once
