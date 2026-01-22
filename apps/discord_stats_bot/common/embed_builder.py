@@ -46,7 +46,13 @@ def build_leaderboard_embed(
         player_values.append(display_name)
         
         # Format value based on type
-        if isinstance(value, (int, float)):
+        if isinstance(value, float):
+            # Format floats with 2 decimal places if they're not whole numbers
+            if value == int(value):
+                value_values.append(f"{int(value):,}")
+            else:
+                value_values.append(f"{value:.2f}")
+        elif isinstance(value, int):
             value_values.append(f"{value:,}")
         else:
             value_values.append(str(value))

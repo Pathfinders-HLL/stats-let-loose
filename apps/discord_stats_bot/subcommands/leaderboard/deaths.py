@@ -1,5 +1,5 @@
 """
-Leaderboard topdeaths subcommand - Get top players by sum of deaths from their top 25 matches (with death type filtering).
+Leaderboard topdeaths subcommand - Get top players by average or sum of deaths from all matches (with death type filtering).
 """
 
 import logging
@@ -37,6 +37,12 @@ DEATH_TYPE_CHOICES = [
     app_commands.Choice(name="Artillery Deaths", value="artillery"),
 ]
 
+# Aggregate by choices for autocomplete
+AGGREGATE_BY_CHOICES = [
+    app_commands.Choice(name="Average", value="average"),
+    app_commands.Choice(name="Sum", value="sum"),
+]
+
 
 async def death_type_autocomplete(
     interaction: discord.Interaction,
@@ -51,6 +57,19 @@ async def death_type_autocomplete(
     return matching[:25]  # Discord limit
 
 
+async def aggregate_by_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> List[app_commands.Choice[str]]:
+    """Autocomplete function for aggregate_by parameter."""
+    current_lower = current.lower()
+    matching = [
+        choice for choice in AGGREGATE_BY_CHOICES
+        if current_lower in choice.name.lower() or current_lower in choice.value.lower()
+    ]
+    return matching[:25]  # Discord limit
+
+
 def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_check=None) -> None:
     """
     Register the topdeaths subcommand with the leaderboard group.
@@ -59,16 +78,18 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
         leaderboard_group: The leaderboard command group to register the subcommand with
         channel_check: Optional function to check if the channel is allowed
     """
-    @leaderboard_group.command(name="deaths", description="Get top players by sum of deaths from their top 25 matches (with death type filtering)")
+    @leaderboard_group.command(name="deaths", description="Get top players by average or sum of deaths from all matches")
     @app_commands.describe(
         death_type="(Optional) The death type to filter by (All Deaths, Infantry Deaths, Armor Deaths, Artillery Deaths)",
+        aggregate_by="(Optional) Whether to use average or sum (default: average)",
         over_last_days="(Optional) Number of days to look back (default: 30, use 0 for all-time)",
         only_pathfinders="(Optional) If true, only show Pathfinder players (default: false)"
     )
     @app_commands.autocomplete(death_type=death_type_autocomplete)
+    @app_commands.autocomplete(aggregate_by=aggregate_by_autocomplete)
     @command_wrapper("leaderboard deaths", channel_check=channel_check)
-    async def leaderboard_topdeaths(interaction: discord.Interaction, death_type: str = "all", over_last_days: int = 30, only_pathfinders: bool = False):
-        """Get top players by sum of deaths from their top 25 matches with optional death type filtering."""
+    async def leaderboard_topdeaths(interaction: discord.Interaction, death_type: str = "all", aggregate_by: str = "average", over_last_days: int = 30, only_pathfinders: bool = False):
+        """Get top players by average or sum of deaths from all matches."""
         command_start_time = time.time()
 
         # Validate over_last_days (allow 0 for all-time, but otherwise 1-180)
@@ -87,7 +108,18 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
             )
         except ValueError as e:
             await interaction.followup.send(str(e))
-            log_command_completion("leaderboard deaths", command_start_time, success=False, interaction=interaction, kwargs={"death_type": death_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
+            log_command_completion("leaderboard deaths", command_start_time, success=False, interaction=interaction, kwargs={"death_type": death_type, "aggregate_by": aggregate_by, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
+            return
+        
+        # Validate aggregate_by
+        try:
+            aggregate_by_lower = validate_choice_parameter(
+                "aggregate by", aggregate_by, {"average", "sum"},
+                ["Average", "Sum"]
+            )
+        except ValueError as e:
+            await interaction.followup.send(str(e))
+            log_command_completion("leaderboard deaths", command_start_time, success=False, interaction=interaction, kwargs={"death_type": death_type, "aggregate_by": aggregate_by, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
             return
             
         # Map death type to column name and display name
@@ -113,6 +145,12 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
         config = death_type_config[death_type_lower]
         death_column = config["column"]
         display_name = config["display_name"]
+        
+        # Determine aggregation function and labels
+        is_average = aggregate_by_lower == "average"
+        aggregate_func = "AVG" if is_average else "SUM"
+        aggregate_label = "Average" if is_average else "Sum"
+        value_column_name = "avg_deaths" if is_average else "total_deaths"
 
         # Calculate time period filter
         time_filter, base_query_params, time_period_text = create_time_filter_params(over_last_days)
@@ -149,10 +187,22 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
                 )
                 query_params.extend(pf_params)
             
-            # Combine WHERE clauses with death column filter
+            # Add match quality filters for average mode (45+ min, 60+ players)
+            quality_match_filters = []
+            if is_average:
+                quality_match_filters.append("pms.time_played >= 2700")
+                quality_match_filters.append("""pms.match_id IN (
+                    SELECT match_id 
+                    FROM pathfinder_stats.player_match_stats 
+                    GROUP BY match_id 
+                    HAVING COUNT(*) >= 60
+                )""")
+            
+            # Combine WHERE clauses with death column filter and match quality filters
+            base_filters = [f"pms.{escaped_column} > 0"] + quality_match_filters
             ranked_matches_where = build_where_clause(
                 time_where, pathfinder_where,
-                base_filter=f"pms.{escaped_column} > 0"
+                base_filter=" AND ".join(base_filters)
             )
             
             # Build LATERAL join pathfinder filter
@@ -166,42 +216,34 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
             # Build LATERAL JOIN for player name lookup
             lateral_join = build_lateral_name_lookup("tp.player_id", lateral_where)
             
-            # Build query to get top players by sum of deaths from their top 25 matches
+            # Build query to get top players by average or sum of deaths from all matches
             query = f"""
-                    WITH ranked_matches AS (
+                    WITH player_stats AS (
                         SELECT
                             pms.player_id,
-                            pms.{escaped_column} as death_count,
-                            ROW_NUMBER() OVER (PARTITION BY pms.player_id ORDER BY pms.{escaped_column} DESC) as match_rank
+                            {aggregate_func}(pms.{escaped_column}) as {value_column_name}
                         {from_clause}
                         {ranked_matches_where}
-                    ),
-                    top25_per_player AS (
-                        SELECT
-                            player_id,
-                            SUM(death_count) as total_deaths_top25
-                        FROM ranked_matches
-                        WHERE match_rank <= 25
-                        GROUP BY player_id
+                        GROUP BY pms.player_id
                     ),
                     top_players AS (
                         SELECT
-                            tpp.player_id,
-                            tpp.total_deaths_top25
-                        FROM top25_per_player tpp
-                        ORDER BY tpp.total_deaths_top25 DESC
+                            ps.player_id,
+                            ps.{value_column_name}
+                        FROM player_stats ps
+                        ORDER BY ps.{value_column_name} DESC
                         LIMIT 25
                     )
                     SELECT
                         tp.player_id,
                         COALESCE(rn.player_name, tp.player_id) as player_name,
-                        tp.total_deaths_top25
+                        tp.{value_column_name}
                     FROM top_players tp
                     {lateral_join}
-                    ORDER BY tp.total_deaths_top25 DESC
+                    ORDER BY tp.{value_column_name} DESC
                 """
             
-            logger.info(f"Querying top players by sum of {display_name} from top 25 matches{time_period_text}")
+            logger.info(f"Querying top players by {aggregate_label.lower()} of {display_name} from all matches{time_period_text}")
             
             # Log SQL query with parameters substituted
             logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
@@ -210,15 +252,15 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
                     
         if not results:
             await interaction.followup.send(
-                f"❌ No data found for `{display_name}` from top 25 matches{time_period_text}."
+                f"❌ No data found for `{display_name}` from all matches{time_period_text}."
             )
-            log_command_completion("leaderboard deaths", command_start_time, success=False, interaction=interaction, kwargs={"death_type": death_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
+            log_command_completion("leaderboard deaths", command_start_time, success=False, interaction=interaction, kwargs={"death_type": death_type, "aggregate_by": aggregate_by, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
             return
 
         # Format results as Discord embed with three column fields
         filter_text = " (Pathfinders Only)" if only_pathfinders else ""
         embed = discord.Embed(
-            title=f"Top Players - Sum of {display_name} from Top 25 Matches{time_period_text}{filter_text}",
+            title=f"Top Players - {aggregate_label} of {display_name} from All Matches{time_period_text}{filter_text}",
             color=discord.Color.from_rgb(16, 74, 0)
         )
 
@@ -230,10 +272,13 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
         for rank, row in enumerate(results, 1):
             # Use player_name if available, otherwise use player_id
             display_player_name = row['player_name'] if row['player_name'] else row['player_id']
-            total_deaths = row['total_deaths_top25']
+            death_value = row[value_column_name]
             rank_values.append(f"#{rank}")
             player_values.append(display_player_name)
-            deaths_values.append(f"{total_deaths:,}")
+            if is_average:
+                deaths_values.append(f"{death_value:.2f}")
+            else:
+                deaths_values.append(f"{death_value:,}")
 
         # Add the three columns as inline fields (side-by-side)
         embed.add_field(
@@ -253,5 +298,5 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
         )
 
         await interaction.followup.send(embed=embed)
-        log_command_completion("leaderboard deaths", command_start_time, success=True, interaction=interaction, kwargs={"death_type": death_type, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
+        log_command_completion("leaderboard deaths", command_start_time, success=True, interaction=interaction, kwargs={"death_type": death_type, "aggregate_by": aggregate_by, "over_last_days": over_last_days, "only_pathfinders": only_pathfinders})
 

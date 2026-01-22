@@ -49,6 +49,7 @@ ON pathfinder_stats.player_kill_stats(player_id, match_id);
 -- SECTION 3: Indexes for /player kills and /leaderboard kills commands
 -- Pattern: WHERE player_id = X [AND mh.start_time >= Y] AND kill_column > 0 ORDER BY kill_column DESC
 -- Also used for: ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY kill_column DESC)
+-- Note: /leaderboard kills with aggregate_by="average" also filters by time_played >= 2700 and 60+ players per match
 -- ============================================================================
 
 -- Optimize: Filtering by total_kills >= 100
@@ -79,6 +80,7 @@ WHERE artillery_kills > 0;
 -- SECTION 4: Indexes for /player deaths and /leaderboard deaths commands
 -- Pattern: WHERE player_id = X [AND mh.start_time >= Y] AND death_column > 0 ORDER BY death_column DESC
 -- Also used for: ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY death_column DESC)
+-- Note: /leaderboard deaths with aggregate_by="average" also filters by time_played >= 2700 and 60+ players per match
 -- ============================================================================
 
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_total_deaths 
@@ -136,6 +138,7 @@ WHERE time_played >= 2700;
 -- SECTION 6: Indexes for /player contributions and /leaderboard contributions commands
 -- Pattern: WHERE player_id = X AND score_column > 0 ORDER BY score_column DESC
 -- Also used for: ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY score_column DESC)
+-- Note: /leaderboard contributions with aggregate_by="average" also filters by time_played >= 2700 and 60+ players per match
 -- ============================================================================
 
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_player_id_combat_score 
@@ -156,7 +159,8 @@ WHERE support_score > 0;
 
 -- ============================================================================
 -- SECTION 7: Indexes for /leaderboard performance command
--- Pattern: WHERE time_played >= 2700 [AND mh.start_time >= Y] GROUP BY player_id ORDER BY AVG/MAX(stat_column) DESC
+-- Pattern: WHERE time_played >= 2700 [AND mh.start_time >= Y] AND match has 60+ players GROUP BY player_id ORDER BY AVG/MAX(stat_column) DESC
+-- Note: Now also filters by match quality (60+ players per match)
 -- ============================================================================
 
 CREATE INDEX IF NOT EXISTS idx_player_match_stats_time_played_kpm 
@@ -305,7 +309,7 @@ COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_total_kills IS
 'Partial index for filtering 100+ kill games (covers WHERE total_kills >= 100)';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_total_kills IS 
-'Composite index for /player kills and /leaderboard kills (PARTITION BY player_id ORDER BY total_kills DESC)';
+'Composite index for /player kills and /leaderboard kills (PARTITION BY player_id ORDER BY total_kills DESC). Note: /leaderboard kills with aggregate_by=average also filters by time_played >= 2700 and 60+ players';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_infantry_kills IS 
 'Composite index for kill queries with infantry filter';
@@ -318,7 +322,7 @@ COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_artillery_kil
 
 -- Death indexes
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_total_deaths IS 
-'Composite index for /player deaths and /leaderboard deaths (PARTITION BY player_id ORDER BY total_deaths DESC)';
+'Composite index for /player deaths and /leaderboard deaths (PARTITION BY player_id ORDER BY total_deaths DESC). Note: /leaderboard deaths with aggregate_by=average also filters by time_played >= 2700 and 60+ players';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_infantry_deaths IS 
 'Composite index for death queries with infantry filter';
@@ -353,32 +357,32 @@ COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_total_kills_t
 
 -- Contributions indexes
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_combat_score IS 
-'Composite index for /player contributions and /leaderboard contributions (combat score)';
+'Composite index for /player contributions and /leaderboard contributions (combat score). Note: /leaderboard contributions with aggregate_by=average also filters by time_played >= 2700 and 60+ players';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_offense_score IS 
-'Composite index for /player contributions and /leaderboard contributions (offense score)';
+'Composite index for /player contributions and /leaderboard contributions (offense score). Note: /leaderboard contributions with aggregate_by=average also filters by time_played >= 2700 and 60+ players';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_defense_score IS 
-'Composite index for /player contributions and /leaderboard contributions (defense score)';
+'Composite index for /player contributions and /leaderboard contributions (defense score). Note: /leaderboard contributions with aggregate_by=average also filters by time_played >= 2700 and 60+ players';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_support_score IS 
-'Composite index for /player contributions and /leaderboard contributions (support score)';
+'Composite index for /player contributions and /leaderboard contributions (support score). Note: /leaderboard contributions with aggregate_by=average also filters by time_played >= 2700 and 60+ players';
 
 -- Leaderboard performance indexes
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_time_played_kpm IS 
-'Optimizes /leaderboard performance queries for KPM with time_played >= 2700 filter';
+'Optimizes /leaderboard performance queries for KPM with time_played >= 2700 and 60+ players filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_time_played_kdr IS 
-'Optimizes /leaderboard performance queries for KDR with time_played >= 2700 filter';
+'Optimizes /leaderboard performance queries for KDR with time_played >= 2700 and 60+ players filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_time_played_dpm IS 
-'Optimizes /leaderboard performance queries for DPM with time_played >= 2700 filter';
+'Optimizes /leaderboard performance queries for DPM with time_played >= 2700 and 60+ players filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_time_played_kill_streak IS 
-'Optimizes /leaderboard performance queries for kill streak with time_played >= 2700 filter';
+'Optimizes /leaderboard performance queries for kill streak and 60+ players filter';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_time_played_death_streak IS 
-'Optimizes /leaderboard performance queries for death streak with time_played >= 2700 filter';
+'Optimizes /leaderboard performance queries for death streak and 60+ players filter';
 
 -- Maps command indexes
 COMMENT ON INDEX pathfinder_stats.idx_match_history_map_name_lower IS 

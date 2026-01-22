@@ -1,5 +1,5 @@
 """
-Player top25matches subcommand - Get top 25 matches for a player by total kills (with kill type filtering).
+Player top25matches subcommand - Get top 25 matches for a player by total kills.
 """
 
 import logging
@@ -57,7 +57,7 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
         player_group: The player command group to register the subcommand with
         channel_check: Optional function to check if the channel is allowed
     """
-    @player_group.command(name="kills", description="Get top 25 matches for a player by total kills (with kill type filtering)")
+    @player_group.command(name="kills", description="Get top 25 matches for a player by total kills")
     @app_commands.describe(
         kill_type="The kill type to filter by (All Kills, Infantry Kills, Armor Kills, Artillery Kills)",
         player="(Optional) The player ID or player name (optional if you've set one with /profile setid)",

@@ -52,10 +52,10 @@ async def stat_type_autocomplete(
 
 def register_performance_subcommand(leaderboard_group: app_commands.Group, channel_check=None) -> None:
     """Register the performance subcommand."""
-    @leaderboard_group.command(name="performance", description="Get top players by average KDR, KPM, DPM, kill/death streaks (players must have played 45+ minutes)")
+    @leaderboard_group.command(name="performance", description="Get top players by average KDR, KPM, DPM, kill/death streaks")
     @app_commands.describe(
         stat_type="The stat type to rank by (KDR, KPM, DPM, Kill Streak, or Death Streak)",
-        over_last_days="(Optional) Number of days to look back (default: 30, use 0 for all-time). Only includes matches where the player played 45+ minutes.",
+        over_last_days="(Optional) Number of days to look back (default: 30, use 0 for all-time)",
         only_pathfinders="(Optional) If true, only show Pathfinder players (default: false)"
     )
     @app_commands.autocomplete(stat_type=stat_type_autocomplete)
@@ -168,6 +168,14 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
             else:
                 # For non-streak stats, require minimum time played
                 extra_filters.append("pms.time_played >= 2700")
+            
+            # Add player count filter for quality matches (60+ players)
+            extra_filters.append("""pms.match_id IN (
+                SELECT match_id 
+                FROM pathfinder_stats.player_match_stats 
+                GROUP BY match_id 
+                HAVING COUNT(*) >= 60
+            )""")
             
             # Combine WHERE clauses
             player_stats_where = build_where_clause(
