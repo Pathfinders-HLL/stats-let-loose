@@ -185,50 +185,53 @@ async def help_command(interaction: discord.Interaction):
             return
         
         # Create help message
-        commands_text = "## StatsFinder Bot Commands\n\n"
-        
-        commands_text += "### Profile Commands:\n"
-        commands_text += "**`/profile setid`** - Set default player ID\n"
-        commands_text += "  • `player` (required): Your player ID or name\n\n"
-        
-        commands_text += "**`/profile clearid`** - Clear stored player ID\n\n"
-        
-        commands_text += "### Player Commands:\n"
+        commands_text = """
+# StatsFinder Bot Commands
 
-        commands_text += "**`/player kills`** - Top matches by total kills\n"
-        
-        commands_text += "**`/player deaths`** - Top matches by total deaths\n"
-        
-        commands_text += "**`/player weapon`** - Get total kills for a player by weapon category\n"
-        commands_text += "  • `weapon_category` (required))\n\n"
-        
-        commands_text += "**`/player performance`** - Get top matches for a player by stat (KPM, KDR, Kill Streak, etc)\n"
-        commands_text += "  • `stat_type` (required): KPM, KDR, DPM, Kill Streak, Death Streak, Most Kills)\n\n"
-        
-        commands_text += "**`/player contributions`** - Top matches by score type\n"
-        commands_text += "  • `score_type` (required): Support Score, Attack Score, Defense Score, Combat Score)\n\n"
-        
-        commands_text += "**`/player maps`** - Best stats per map ordered by best to worst\n"
-        
-        commands_text += "### Leaderboard Commands:\n"
-        
-        commands_text += "**`/leaderboard kills`** - Top by sum of kills from top matches\n"
-        
-        commands_text += "**`/leaderboard deaths`** - Top by sum of deaths from top matches\n\n"
-        
-        commands_text += "**`/leaderboard 100killgames`** - Top by most 100+ kill games\n"
-        
-        commands_text += "**`/leaderboard weapon`** - Top by weapon kills over time period\n"
-        commands_text += "  • `weapon_category` (required)\n\n"
-        
-        commands_text += "**`/leaderboard alltime`** - Top all-time weapon kills\n"
-        commands_text += "  • `weapon_category` (required)\n\n"
-        
-        commands_text += "**`/leaderboard performance`** - Top by average stat (KPM< KDR, etc)\n"
-        commands_text += "  • `stat_type` (required): KDR, KPM, DPM, Kill/Death Streak\n\n"
-        
-        commands_text += "**`/leaderboard contributions`** - Top by sum of scores (Attack, Support, etc)\n"
-        commands_text += "  • `score_type` (required): Support Score, Attack Score, Defense Score, Combat Score\n\n"
+## General
+**`/help`** - Show commands
+
+## Profile
+**`/profile setid`** - Set default player ID
+- `player` (required)
+**`/profile clearid`** - Clear stored player ID
+**`/profile format`** - Set leaderboard format
+- `format_type` (required): Cards/Table/List
+
+## Player Commands
+**`/player kills`** - Top 25 matches by kills  
+**`/player deaths`** - Top 25 matches by deaths  
+**`/player weapon`** - Total kills by weapon  
+**`/player performance`** - Top matches by stat
+- `stat_type` (required): KPM/KDR/DPM/Streaks/Most Kills
+**`/player contributions`** - Top 25 matches by score
+- `score_type` (required): Support/Attack/Defense/Combat
+**`/player maps`** - Best match stats for map
+- `map_name` (required)
+**`/player nemesis`** - Top 25 players who killed you  
+**`/player victim`** - Top 25 players you killed
+
+## Leaderboard Commands
+**`/leaderboard kills`** - Top by kills (avg/sum)  
+**`/leaderboard deaths`** - Top by deaths (avg/sum)  
+**`/leaderboard 100killgames`** - Most 100+ kill games  
+**`/leaderboard weapon`** - Top by weapon kills
+- `weapon_category` (required)
+**`/leaderboard alltime`** - All-time weapon kills
+- `weapon_category` (required)
+**`/leaderboard performance`** - Top by stat
+- `stat_type` (required): KDR/KPM/DPM/Streaks
+**`/leaderboard contributions`** - Top by scores
+- `score_type` (required): Support/Attack/Defense/Combat
+
+## Optional Parameters
+- `player`: ID/name (skip if set via `/profile setid`)
+- `over_last_days`: Days back (default: 30, 0=all-time)
+- `only_pathfinders`: Filter to Pathfinders (default: false)
+- `kill_type`/`death_type`: All/Infantry/Armor/Artillery
+- `aggregate_by`: Average/Sum (default: Average)
+- `order_by`: Kills/KDR/KPM (default: Kills)
+        """
         
         # Log the content length for debugging
         logger.info(f"Help command content length: {len(commands_text)} chars (help text)")

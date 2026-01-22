@@ -203,7 +203,7 @@ def build_paginated_list(
         value = row.get(value_key, 0)
         formatted_value = format_value(value)
         
-        lines.append(f"{rank}. {player_name} — {formatted_value} {value_label.lower()}")
+        lines.append(f"{rank}. **{player_name}** - {formatted_value} {value_label.lower()}")
     
     # Build footer
     footer_parts = [f"Page {page}/{total_pages}"]
