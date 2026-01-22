@@ -22,6 +22,7 @@ from apps.discord_stats_bot.common.shared import (
     escape_sql_identifier,
     get_pathfinder_player_ids,
     build_pathfinder_filter,
+    format_sql_query_with_params,
 )
 from apps.discord_stats_bot.common.weapon_autocomplete import get_weapon_mapping
 from apps.discord_stats_bot.config import get_bot_config
@@ -202,6 +203,8 @@ async def _get_most_infantry_kills(
             ORDER BY tp.total_infantry_kills DESC
         """
         
+        logger.info(f"SQL Query: {format_sql_query_with_params(query, params)}")
+        
         results = await conn.fetch(query, *params)
         return [dict(row) for row in results]
 
@@ -278,6 +281,8 @@ async def _get_average_kd(
             ORDER BY tp.avg_kd DESC
         """
         
+        logger.info(f"SQL Query: {format_sql_query_with_params(query, params)}")
+        
         results = await conn.fetch(query, *params)
         return [dict(row) for row in results]
 
@@ -333,6 +338,8 @@ async def _get_most_kills_single_match(
             LIMIT {TOP_PLAYERS_LIMIT}
         """
         
+        logger.info(f"SQL Query: {format_sql_query_with_params(wrapper_query, params)}")
+        
         results = await conn.fetch(wrapper_query, *params)
         return [dict(row) for row in results]
 
@@ -387,6 +394,8 @@ async def _get_best_kd_single_match(
             ORDER BY value DESC
             LIMIT {TOP_PLAYERS_LIMIT}
         """
+        
+        logger.info(f"SQL Query: {format_sql_query_with_params(wrapper_query, params)}")
         
         results = await conn.fetch(wrapper_query, *params)
         return [dict(row) for row in results]
@@ -467,6 +476,8 @@ async def _get_most_k98_kills(
             ) rn ON TRUE
             ORDER BY tp.total_k98_kills DESC
         """
+        
+        logger.info(f"SQL Query: {format_sql_query_with_params(query, params)}")
         
         results = await conn.fetch(query, *params)
         return [dict(row) for row in results]
@@ -549,6 +560,8 @@ async def _get_avg_objective_efficiency(
             ) rn ON TRUE
             ORDER BY tp.avg_obj_efficiency DESC
         """
+        
+        logger.info(f"SQL Query: {format_sql_query_with_params(query, params)}")
         
         results = await conn.fetch(query, *params)
         return [dict(row) for row in results]
