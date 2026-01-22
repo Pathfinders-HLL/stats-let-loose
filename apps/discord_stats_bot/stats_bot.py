@@ -9,15 +9,18 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from apps.discord_stats_bot.commands.leaderboard import setup_leaderboard_command
-from apps.discord_stats_bot.commands.management import setup_profile_command
-from apps.discord_stats_bot.commands.player import setup_player_command
-from apps.discord_stats_bot.common.player_id_cache import initialize_cache
-from apps.discord_stats_bot.common.format_preference_cache import initialize_format_cache
-from apps.discord_stats_bot.common.shared import (
+from apps.discord_stats_bot.commands import (
+    setup_leaderboard_command,
+    setup_profile_command,
+    setup_player_command,
+)
+from apps.discord_stats_bot.common import (
+    initialize_cache,
+    initialize_format_cache,
     log_command_data,
     log_command_completion,
-    close_db_pool
+    close_db_pool,
+    get_weapon_names,
 )
 from apps.discord_stats_bot.config import get_bot_config
 from apps.discord_stats_bot.jobs.pathfinder_leaderboards import (
@@ -37,8 +40,11 @@ ALLOWED_CHANNEL_IDS = bot_config.allowed_channel_ids
 
 intents = discord.Intents.default()
 
+
 async def get_prefix(bot, message):
+    """Return empty prefix list (only slash commands)."""
     return []
+
 
 bot = commands.Bot(
     command_prefix=get_prefix,
@@ -46,7 +52,6 @@ bot = commands.Bot(
     description="StatsLetLoose Discord Bot"
 )
 
-# Use the bot's built-in command tree (automatically created)
 tree = bot.tree
 
 
@@ -57,6 +62,7 @@ def check_channel_permission(interaction: discord.Interaction) -> bool:
     return interaction.channel_id in ALLOWED_CHANNEL_IDS
 
 
+# Register command groups
 setup_player_command(tree, check_channel_permission)
 setup_leaderboard_command(tree, check_channel_permission)
 setup_profile_command(tree, check_channel_permission)
@@ -68,7 +74,6 @@ async def on_ready():
     logger.info(f"{bot.user} has connected to Discord!")
     logger.info(f"Bot is in {len(bot.guilds)} guild(s)")
     
-    # Wait a moment to ensure all guilds are loaded
     await bot.wait_until_ready()
     
     # Initialize caches
@@ -79,45 +84,35 @@ async def on_ready():
     dev_guild_id = bot_config.dev_guild_id
     
     if dev_guild_id:
-        # Sync to development guild (guild commands only, faster than global sync)
         logger.info(f"Syncing commands to development guild {dev_guild_id}...")
         try:
             dev_guild = discord.Object(id=dev_guild_id)
-            
-            # Copy global commands to the guild first, then sync
             tree.copy_global_to(guild=dev_guild)
             synced_guild = await tree.sync(guild=dev_guild)
             
-            # Log command names for verification
             if synced_guild:
                 command_names = [cmd.name for cmd in synced_guild]
                 logger.info(f"Synced {len(synced_guild)} commands to guild: {', '.join(command_names)}")
             else:
-                logger.warning("No commands were synced to development guild - they may already be synced")
+                logger.warning("No commands were synced to development guild")
         except Exception as e:
             logger.error(f"Failed to sync to development guild: {e}", exc_info=True)
     else:
-        # Sync globally (slower but works for all guilds)
         logger.info("Syncing commands globally...")
         try:
             synced_global = await tree.sync()
             
-            # Log command names for verification
             if synced_global:
                 command_names = [cmd.name for cmd in synced_global]
                 logger.info(f"Synced {len(synced_global)} commands globally: {', '.join(command_names)}")
         except discord.HTTPException as e:
             logger.warning(f"HTTP error while syncing globally: {e}", exc_info=True)
-            logger.warning("Commands may still work if they were synced previously")
         except Exception as e:
             logger.warning(f"Failed to sync globally: {e}", exc_info=True)
     
-    # Set bot activity
-    await bot.change_presence(
-        activity=discord.Game(name="Use /help for commands")
-    )
+    await bot.change_presence(activity=discord.Game(name="Use /help for commands"))
     
-    # Register persistent views (for buttons/dropdowns that work after bot restart)
+    # Register persistent views
     bot.add_view(LeaderboardView())
     
     # Start scheduled tasks
@@ -133,13 +128,14 @@ async def on_disconnect():
 
 @tree.command(name="ping", description="Check if the bot is responding")
 async def ping(interaction: discord.Interaction):
+    """Check if the bot is responding."""
     start_time = time.time()
     log_command_data(interaction, "ping")
     
     try:
         if not check_channel_permission(interaction):
             await interaction.response.send_message(
-                f"❌ This bot can only be used in the designated channel.",
+                "❌ This bot can only be used in the designated channel.",
                 ephemeral=True
             )
             log_command_completion("ping", start_time, success=False, interaction=interaction, kwargs={})
@@ -156,13 +152,14 @@ async def ping(interaction: discord.Interaction):
 
 @tree.command(name="help", description="Show available commands and weapon categories.")
 async def help_command(interaction: discord.Interaction):
+    """Show available commands."""
     start_time = time.time()
     log_command_data(interaction, "help")
     
     try:
         if not check_channel_permission(interaction):
             await interaction.response.send_message(
-                f"❌ This bot can only be used in the designated channel.",
+                "❌ This bot can only be used in the designated channel.",
                 ephemeral=True
             )
             log_command_completion("help", start_time, success=False, interaction=interaction, kwargs={})
@@ -170,10 +167,6 @@ async def help_command(interaction: discord.Interaction):
         
         await interaction.response.defer(ephemeral=True)
         
-        # Import the cached weapon names function
-        from apps.discord_stats_bot.common.weapon_autocomplete import get_weapon_names
-        
-        # Get cached weapon names
         weapon_names = get_weapon_names()
         
         if not weapon_names:
@@ -184,7 +177,6 @@ async def help_command(interaction: discord.Interaction):
             log_command_completion("help", start_time, success=False, interaction=interaction, kwargs={})
             return
         
-        # Create help message
         commands_text = """
 # StatsFinder Bot Commands
 
@@ -233,11 +225,9 @@ async def help_command(interaction: discord.Interaction):
 - `order_by`: Kills/KDR/KPM (default: Kills)
         """
         
-        # Log the content length for debugging
-        logger.info(f"Help command content length: {len(commands_text)} chars (help text)")
+        logger.info(f"Help command content length: {len(commands_text)} chars")
         
         await interaction.followup.send(commands_text, ephemeral=True)
-        
         log_command_completion("help", start_time, success=True, interaction=interaction, kwargs={})
         
     except Exception as e:
@@ -256,6 +246,7 @@ async def help_command(interaction: discord.Interaction):
 
 
 def main():
+    """Main entry point for the Discord bot."""
     try:
         logger.info("Starting Discord bot...")
         bot.run(DISCORD_TOKEN)
@@ -266,4 +257,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

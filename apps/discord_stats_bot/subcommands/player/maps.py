@@ -11,144 +11,105 @@ import discord
 from discord import app_commands
 from tabulate import tabulate
 
-from apps.discord_stats_bot.common.player_id_cache import get_player_id
-from apps.discord_stats_bot.common.shared import (
+from apps.discord_stats_bot.common import (
     get_readonly_db_pool,
     find_player_by_id_or_name,
     log_command_completion,
     escape_sql_identifier,
     validate_choice_parameter,
-    command_wrapper
-)
-from apps.discord_stats_bot.common.map_autocomplete import (
+    command_wrapper,
+    get_player_id,
     map_name_autocomplete,
     find_map_name_case_insensitive,
-    get_map_names
+    get_map_names,
+    order_by_autocomplete,
+    ORDER_BY_CONFIG,
+    ORDER_BY_VALID_VALUES,
+    ORDER_BY_DISPLAY_LIST,
 )
 
 logger = logging.getLogger(__name__)
 
 
-# Order by choices for autocomplete
-ORDER_BY_CHOICES = [
-    app_commands.Choice(name="Kills", value="kills"),
-    app_commands.Choice(name="KDR (Kill-Death Ratio)", value="kdr"),
-    app_commands.Choice(name="KPM (Kills Per Minute)", value="kpm"),
-]
-
-
-async def order_by_autocomplete(
-    interaction: discord.Interaction,
-    current: str,
-) -> List[app_commands.Choice[str]]:
-    """Autocomplete function for order_by parameter."""
-    current_lower = current.lower()
-    matching = [
-        choice for choice in ORDER_BY_CHOICES
-        if current_lower in choice.name.lower() or current_lower in choice.value.lower()
-    ]
-    return matching[:25]  # Discord limit
-
-
 def register_maps_subcommand(player_group: app_commands.Group, channel_check=None) -> None:
-    """
-    Register the maps subcommand with the player group.
+    """Register the maps subcommand with the player group."""
     
-    Args:
-        player_group: The player command group to register the subcommand with
-        channel_check: Optional function to check if the channel is allowed
-    """
-    @player_group.command(name="maps", description="Get a player's best match stats for a specific map")
+    @player_group.command(
+        name="maps", 
+        description="Get a player's best match stats for a specific map"
+    )
     @app_commands.describe(
         map_name="The map name (e.g., 'Carentan', 'Stalingrad', 'Omaha Beach')",
         order_by="How to order results (Kills, KDR, or KPM)",
-        player="(Optional) The player ID or player name (optional if you've set one with /profile setid)"
+        player="(Optional) The player ID or player name"
     )
     @app_commands.autocomplete(map_name=map_name_autocomplete, order_by=order_by_autocomplete)
     @command_wrapper("player maps", channel_check=channel_check)
-    async def player_maps(interaction: discord.Interaction, map_name: str, order_by: str = "kills", player: str = None):
+    async def player_maps(
+        interaction: discord.Interaction, 
+        map_name: str, 
+        order_by: str = "kills", 
+        player: str = None
+    ):
         """Get a player's best match stats for a specific map."""
         command_start_time = time.time()
+        log_kwargs = {"map_name": map_name, "order_by": order_by, "player": player}
 
-        # If player not provided, try to get stored one from cache
         if not player:
             stored_player_id = await get_player_id(interaction.user.id)
             if stored_player_id:
                 player = stored_player_id
             else:
-                await interaction.followup.send("❌ No player ID provided and you haven't set one! Either provide a player ID/name, or use `/profile setid` to set a default.", ephemeral=True)
-                log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
+                await interaction.followup.send(
+                    "❌ No player ID provided and you haven't set one! "
+                    "Either provide a player ID/name, or use `/profile setid` to set a default.", 
+                    ephemeral=True
+                )
+                log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
 
-        # Validate map_name
         map_name = map_name.strip()
         if not map_name:
             await interaction.followup.send("❌ Please provide a map name.")
-            log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
+            log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
         
-        # Find the properly cased map name
         proper_map_name = find_map_name_case_insensitive(map_name)
         available_maps = get_map_names()
         
-        # Check if the map exists (case-insensitive)
         if proper_map_name.lower() not in [m.lower() for m in available_maps]:
-            # Show a helpful error with some suggestions
             suggestions = [m for m in available_maps if map_name.lower() in m.lower()][:5]
             suggestion_text = ""
             if suggestions:
                 suggestion_text = f"\n\nDid you mean: {', '.join(suggestions)}?"
             await interaction.followup.send(f"❌ Unknown map: `{map_name}`.{suggestion_text}")
-            log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
+            log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
 
-        # Validate order_by
         try:
             order_by_lower = validate_choice_parameter(
-                "order by", order_by, {"kills", "kdr", "kpm"},
-                ["Kills", "KDR", "KPM"]
+                "order by", order_by, ORDER_BY_VALID_VALUES, ORDER_BY_DISPLAY_LIST
             )
         except ValueError as e:
             await interaction.followup.send(str(e))
-            log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
+            log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
 
-        # Map order_by to column name and display name
-        order_by_config = {
-            "kills": {
-                "column": "total_kills",
-                "display_name": "Kills",
-                "format": "{:.0f}"
-            },
-            "kdr": {
-                "column": "kill_death_ratio",
-                "display_name": "KDR",
-                "format": "{:.2f}"
-            },
-            "kpm": {
-                "column": "kills_per_minute",
-                "display_name": "KPM",
-                "format": "{:.2f}"
-            }
-        }
-
-        config = order_by_config[order_by_lower]
+        config = ORDER_BY_CONFIG[order_by_lower]
         order_column = config["column"]
         order_display_name = config["display_name"]
-        format_str = config["format"]
 
-        # Connect to database and query
         pool = await get_readonly_db_pool()
         async with pool.acquire() as conn:
-            # Find player by ID or name
             player_id, found_player_name = await find_player_by_id_or_name(conn, player)
 
             if not player_id:
-                await interaction.followup.send(f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.")
-                log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
+                await interaction.followup.send(
+                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name."
+                )
+                log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
 
-            # Build query to get best matches for the specific map
             escaped_order_column = escape_sql_identifier(order_column)
             query = f"""
                 SELECT
@@ -174,20 +135,18 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                 LIMIT 25
             """
 
-            logger.info(f"Querying best matches for player {player_id} on map {proper_map_name} ordered by {order_display_name}")
+            logger.info(f"Querying best matches for player {player_id} on map {proper_map_name}")
             results = await conn.fetch(query, player_id, proper_map_name)
 
             if not results:
                 await interaction.followup.send(
                     f"❌ No matches found for player `{found_player_name or player}` on map `{proper_map_name}`."
                 )
-                log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
+                log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
 
-            # Format results as a table
             display_player_name = found_player_name if found_player_name else player
             
-            # Prepare data for table formatting
             table_data = []
             for row in results:
                 kills = int(row['total_kills'])
@@ -195,7 +154,6 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                 kdr = float(row['kdr'])
                 kpm = float(row['kpm'])
 
-                # Format start_time (timestamp to readable date)
                 start_time_val = row['start_time']
                 if isinstance(start_time_val, datetime):
                     start_time_str = start_time_val.strftime("%Y-%m-%d")
@@ -210,17 +168,14 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                     start_time_str
                 ])
 
-            # Headers
             headers = ["Kills", "Deaths", "K/D", "KPM", "Date"]
             
-            # Build message, removing rows if needed to fit Discord's 2000 character limit
             message_prefix_lines = [
                 f"## Best Matches on {proper_map_name}",
                 f"**Player:** {display_player_name}",
                 f"**Ordered by:** {order_display_name}\n"
             ]
             
-            # Try with all rows first
             for num_rows in range(len(table_data), 0, -1):
                 table_str = tabulate(
                     table_data[:num_rows],
@@ -242,4 +197,4 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                     break
 
             await interaction.followup.send(message)
-            log_command_completion("player maps", command_start_time, success=True, interaction=interaction, kwargs={"map_name": map_name, "order_by": order_by, "player": player})
+            log_command_completion("player maps", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)

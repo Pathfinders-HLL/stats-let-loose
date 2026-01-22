@@ -17,18 +17,18 @@ from typing import Optional, List, Dict, Any, Tuple
 import discord
 from discord.ext import tasks
 
-from apps.discord_stats_bot.common.shared import (
+from apps.discord_stats_bot.common import (
     get_readonly_db_pool,
-    escape_sql_identifier,
     get_pathfinder_player_ids,
+    escape_sql_identifier,
+    create_time_filter_params,
     build_pathfinder_filter,
-    format_sql_query_with_params,
     build_lateral_name_lookup,
     build_from_clause_with_time_filter,
     build_where_clause,
-    create_time_filter_params,
+    format_sql_query_with_params,
+    get_weapon_mapping,
 )
-from apps.discord_stats_bot.common.weapon_autocomplete import get_weapon_mapping
 from apps.discord_stats_bot.config import get_bot_config
 
 logger = logging.getLogger(__name__)

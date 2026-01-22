@@ -7,29 +7,27 @@ import logging
 import time
 from typing import List
 
-import asyncpg
 import discord
 from discord import app_commands
 from tabulate import tabulate
 
-from apps.discord_stats_bot.common.shared import (
+from apps.discord_stats_bot.common import (
     get_readonly_db_pool,
     find_player_by_id_or_name,
     log_command_completion,
     escape_sql_identifier,
     validate_over_last_days,
     create_time_filter_params,
-    command_wrapper
+    command_wrapper,
+    get_player_id,
+    weapon_category_autocomplete,
+    get_weapon_mapping,
+    get_weapon_names,
 )
-from apps.discord_stats_bot.common.player_id_cache import get_player_id
-from apps.discord_stats_bot.common.weapon_autocomplete import weapon_category_autocomplete, get_weapon_mapping, get_weapon_names
 
 logger = logging.getLogger(__name__)
 
-# Load weapon mapping at module level
 WEAPON_MAPPING = get_weapon_mapping()
-
-# Special value for "All Weapons"
 ALL_WEAPONS_VALUE = "ALL_WEAPONS_SPECIAL_VALUE"
 
 
@@ -40,85 +38,83 @@ async def weapon_category_autocomplete_with_all(
     """Autocomplete function that includes 'All Weapons' option."""
     choices = []
     
-    # Add "All Weapons" as first choice if it matches
     if not current or "all weapons" in current.lower():
         choices.append(app_commands.Choice(name="All Weapons", value=ALL_WEAPONS_VALUE))
     
-    # Add regular weapon autocomplete results
     regular_choices = await weapon_category_autocomplete(interaction, current)
     choices.extend(regular_choices)
     
-    # Return up to 25 choices (Discord limit)
     return choices[:25]
 
 
 def register_weapon_subcommand(player_group: app_commands.Group, channel_check=None) -> None:
-    """
-    Register the weapon subcommand with the player group.
+    """Register the weapon subcommand with the player group."""
     
-    Args:
-        player_group: The player command group to register the subcommand with
-        channel_check: Optional function to check if the channel is allowed
-    """
-    @player_group.command(name="weapon", description="Get total kills for a player by weapon category (defaults to all weapons)")
+    @player_group.command(
+        name="weapon", 
+        description="Get total kills for a player by weapon category"
+    )
     @app_commands.describe(
-        weapon_category="The weapon category (e.g., 'M1 Garand', 'Thompson', 'Sniper'). Defaults to all weapons if not specified.",
+        weapon_category="The weapon category (defaults to all weapons if not specified)",
         over_last_days="(Optional) Number of days to look back (default: 30, use 0 for all-time)",
-        player="(Optional) The player ID or player name (optional if you've set one with /profile setid)"
+        player="(Optional) The player ID or player name"
     )
     @app_commands.autocomplete(weapon_category=weapon_category_autocomplete_with_all)
     @command_wrapper("player weapon", channel_check=channel_check)
-    async def player_weapon(interaction: discord.Interaction, weapon_category: str = None, player: str = None, over_last_days: int = 30):
+    async def player_weapon(
+        interaction: discord.Interaction, 
+        weapon_category: str = None, 
+        player: str = None, 
+        over_last_days: int = 30
+    ):
         """Get the total kills for a player by weapon category."""
         command_start_time = time.time()
+        log_kwargs = {"weapon_category": weapon_category, "player": player, "over_last_days": over_last_days}
 
-        # Validate over_last_days (allow 0 for all-time, but otherwise 1-180)
         try:
             validate_over_last_days(over_last_days)
         except ValueError as e:
             await interaction.followup.send(str(e))
-            log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "player": player, "over_last_days": over_last_days})
+            log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
 
-        # If player not provided, try to get stored one from cache
         if not player:
             stored_player_id = await get_player_id(interaction.user.id)
             if stored_player_id:
                 player = stored_player_id
             else:
-                await interaction.followup.send("❌ No player ID provided and you haven't set one! Either provide a player ID/name, or use `/profile setid` to set a default.", ephemeral=True)
-                log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "player": player, "over_last_days": over_last_days})
+                await interaction.followup.send(
+                    "❌ No player ID provided and you haven't set one! "
+                    "Either provide a player ID/name, or use `/profile setid` to set a default.", 
+                    ephemeral=True
+                )
+                log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
 
-        # If no weapon_category provided, default to "All Weapons"
         if not weapon_category or weapon_category == ALL_WEAPONS_VALUE:
-            # Handle "All Weapons" case
             await _handle_all_weapons(interaction, player, over_last_days, command_start_time)
             return
 
-        # Map friendly name to database column name
         weapon_category_lower = weapon_category.lower().strip()
         column_name = WEAPON_MAPPING.get(weapon_category_lower)
 
         if not column_name:
-            # List available weapon categories
             available_categories = sorted(set(WEAPON_MAPPING.keys()))
-            await interaction.followup.send(f"❌ Unknown weapon category: `{weapon_category}` Available categories: {', '.join(sorted(available_categories))}")
-            log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "player": player, "over_last_days": over_last_days})
+            await interaction.followup.send(
+                f"❌ Unknown weapon category: `{weapon_category}` "
+                f"Available categories: {', '.join(sorted(available_categories))}"
+            )
+            log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
         
-        # Get the friendly category name from the mapping with proper casing
-        # Find the properly cased friendly name that maps to this column
         friendly_category_name = None
         weapon_names = get_weapon_names()
         for friendly_name in weapon_names:
             friendly_name_lower = friendly_name.lower().strip()
             if friendly_name_lower == weapon_category_lower:
-                # Found exact match (case-insensitive), use the properly cased version
                 friendly_category_name = friendly_name
                 break
         
-        # If no exact match found, find any friendly name that maps to this column
         if friendly_category_name is None:
             for friendly_name in weapon_names:
                 friendly_name_lower = friendly_name.lower().strip()
@@ -126,31 +122,25 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
                     friendly_category_name = friendly_name
                     break
         
-        # Fallback to user input if no match found (shouldn't happen)
         if friendly_category_name is None:
             friendly_category_name = weapon_category
             
-        # Connect to database and query
         pool = await get_readonly_db_pool()
         async with pool.acquire() as conn:
-            # Find player by ID or name
             player_id, found_player_name = await find_player_by_id_or_name(conn, player)
 
             if not player_id:
-                await interaction.followup.send(f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.")
-                log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": weapon_category, "player": player, "over_last_days": over_last_days})
+                await interaction.followup.send(
+                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name."
+                )
+                log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
                     
-            # Calculate time period filter
             time_filter, base_query_params, time_period_text = create_time_filter_params(over_last_days)
             
-            # Adjust parameter number in time_filter if we have base params
-            # Since player_id is $1, time_threshold needs to be $2
             if base_query_params:
                 time_filter = time_filter.replace("$1", "$2")
                         
-            # Query 1: Get player's total kills (optimized with WHERE clause and direct aggregation)
-            # Join with match_history to filter by time period
             escaped_column = escape_sql_identifier(column_name)
             query1 = f"""
                 SELECT COALESCE(SUM(pks.{escaped_column}), 0) as total_kills
@@ -164,9 +154,6 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
             query_params = [player_id] + base_query_params
             total_kills = await conn.fetchval(query1, *query_params) or 0
             
-            # Query 2: Get rank and total players count (optimized - single scan with conditional aggregation)
-            # Counts both metrics in one pass through the data, avoiding multiple scans
-            # Filter by same time period for consistent ranking
             if base_query_params:
                 query2 = f"""
                     WITH player_totals AS (
@@ -210,7 +197,6 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
                 rank = 0
                 total_players = 0
 
-            # Display result
             display_name = found_player_name if found_player_name else player
             if total_kills == 0:
                 await interaction.followup.send(
@@ -221,59 +207,58 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
                 if total_players > 0:
                     rank_text += f" out of **{total_players}** players"
                 await interaction.followup.send(
-                    f"Player `{display_name}` has **{total_kills:,}** total kills with `{friendly_category_name}`{time_period_text} ({rank_text})"
+                    f"Player `{display_name}` has **{total_kills:,}** total kills "
+                    f"with `{friendly_category_name}`{time_period_text} ({rank_text})"
                 )
 
-            log_command_completion("player weapon", command_start_time, success=True, interaction=interaction, kwargs={"weapon_category": weapon_category, "player": player, "over_last_days": over_last_days})
+            log_command_completion("player weapon", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)
 
 
-async def _handle_all_weapons(interaction: discord.Interaction, player: str, over_last_days: int, command_start_time: float = None) -> None:
-    """Handle the 'All Weapons' case - show all weapons the player has kills with, sorted by kills."""
+async def _handle_all_weapons(
+    interaction: discord.Interaction, 
+    player: str, 
+    over_last_days: int, 
+    command_start_time: float = None
+) -> None:
+    """Handle the 'All Weapons' case."""
     if command_start_time is None:
         command_start_time = time.time()
-    # Connect to database and query
+    
+    log_kwargs = {"weapon_category": "All Weapons", "player": player, "over_last_days": over_last_days}
+    
     pool = await get_readonly_db_pool()
     async with pool.acquire() as conn:
-        # Find player by ID or name
         player_id, found_player_name = await find_player_by_id_or_name(conn, player)
 
         if not player_id:
-            await interaction.followup.send(f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.")
-            log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs={"weapon_category": "All Weapons", "player": player, "over_last_days": over_last_days})
+            await interaction.followup.send(
+                f"❌ Could not find user: `{player}`. Try using a player ID or exact player name."
+            )
+            log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
         
-        # Calculate time period filter
         time_filter, base_query_params, time_period_text = create_time_filter_params(over_last_days)
         
-        # Get all weapon column names from mapping (unique values)
         all_column_names = sorted(set(WEAPON_MAPPING.values()))
         
-        # Get all weapon friendly names (for display)
         weapon_names = get_weapon_names()
-        # Create reverse mapping: column_name -> friendly_name
         column_to_friendly = {}
         for friendly_name in weapon_names:
             friendly_name_lower = friendly_name.lower().strip()
             col_name = WEAPON_MAPPING.get(friendly_name_lower)
             if col_name and col_name not in column_to_friendly:
-                # Use the properly cased friendly name
                 column_to_friendly[col_name] = friendly_name
         
-        # Build a single query to get all weapon stats at once using json_build_object
-        # This replaces 60+ queries with a single query
         escaped_columns = [escape_sql_identifier(col) for col in all_column_names]
         json_keys = [f"'{col}'" for col in all_column_names]
         json_values = [f"COALESCE(SUM(pks.{esc}), 0)" for esc in escaped_columns]
         
-        # Build the json_build_object call
         json_pairs = ", ".join([f"{key}, {val}" for key, val in zip(json_keys, json_values)])
         
-        # Adjust parameter number in time_filter if we have base params
         adjusted_time_filter = time_filter
         if base_query_params:
             adjusted_time_filter = time_filter.replace("$1", "$2")
         
-        # Single query to get all weapon totals for the player
         query_params = [player_id] + base_query_params
         if base_query_params:
             query = f"""
@@ -294,24 +279,19 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
         
         result = await conn.fetchrow(query, *query_params)
         weapon_totals_json = result['weapon_totals'] if result else {}
-        # Handle case where asyncpg returns JSON as string
         if isinstance(weapon_totals_json, str):
             weapon_totals_json = json.loads(weapon_totals_json)
         
-        # Now get ranks for all weapons in a single query using a similar approach
-        # Build a query that calculates ranks for all weapons at once
         weapon_stats = []
         
         for column_name in all_column_names:
             total_kills = weapon_totals_json.get(column_name, 0) if weapon_totals_json else 0
             
-            # Skip weapons with 0 kills
             if total_kills == 0:
                 continue
             
             escaped_column = escape_sql_identifier(column_name)
             
-            # Get rank for this weapon (still need individual rank queries, but at least kills are batched)
             if base_query_params:
                 rank_query = f"""
                     WITH player_totals AS (
@@ -351,7 +331,6 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
             rank = rank_result['rank'] if rank_result and rank_result['rank'] is not None else 0
             total_players = rank_result['total_players'] if rank_result and rank_result['total_players'] is not None else 0
             
-            # Get friendly name for display
             friendly_name = column_to_friendly.get(column_name, column_name.replace('_', ' ').title())
             
             weapon_stats.append({
@@ -361,7 +340,6 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
                 'total_players': total_players
             })
         
-        # Sort by kills (descending)
         weapon_stats.sort(key=lambda x: x['kills'], reverse=True)
         
         if not weapon_stats:
@@ -371,10 +349,8 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
             )
             return
         
-        # Format results as a table
         display_name = found_player_name if found_player_name else player
         
-        # Prepare data for table formatting
         table_data = []
         for weapon_stat in weapon_stats:
             rank_text = f"#{weapon_stat['rank']}"
@@ -387,16 +363,13 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
                 rank_text
             ])
 
-        # Headers
         headers = ["Weapon", "Kills", "Rank"]
         
-        # Build message, removing rows if needed to fit Discord's 2000 character limit
         message_prefix_lines = [
             f"## All Weapons - {display_name}{time_period_text}",
             "*Sorted by total kills (highest to lowest)*\n"
         ]
         
-        # Try with all rows first
         for num_rows in range(len(table_data), 0, -1):
             table_str = tabulate(
                 table_data[:num_rows],
@@ -418,5 +391,4 @@ async def _handle_all_weapons(interaction: discord.Interaction, player: str, ove
                 break
         
         await interaction.followup.send(message)
-        log_command_completion("player weapon", command_start_time, success=True, interaction=interaction, kwargs={"weapon_category": "All Weapons", "player": player, "over_last_days": over_last_days})
-
+        log_command_completion("player weapon", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)

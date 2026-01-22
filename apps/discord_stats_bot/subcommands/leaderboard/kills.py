@@ -1,15 +1,15 @@
 """
-Leaderboard topkills subcommand - Get top players by average or sum of kills from all matches.
+Leaderboard kills subcommand - Get top players by average or sum of kills.
 """
 
 import logging
 import time
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 import discord
 from discord import app_commands
 
-from apps.discord_stats_bot.common.shared import (
+from apps.discord_stats_bot.common import (
     get_readonly_db_pool,
     log_command_completion,
     escape_sql_identifier,
@@ -22,8 +22,14 @@ from apps.discord_stats_bot.common.shared import (
     build_lateral_name_lookup,
     build_from_clause_with_time_filter,
     build_where_clause,
+    kill_type_autocomplete,
+    aggregate_by_autocomplete,
+    KILL_TYPE_CONFIG,
+    KILL_TYPE_VALID_VALUES,
+    KILL_TYPE_DISPLAY_LIST,
+    AGGREGATE_BY_VALID_VALUES,
+    AGGREGATE_BY_DISPLAY_LIST,
 )
-from apps.discord_stats_bot.common.constants import KILL_TYPE_CONFIG
 from apps.discord_stats_bot.common.leaderboard_pagination import (
     send_paginated_leaderboard,
     TOP_PLAYERS_LIMIT,
@@ -31,47 +37,6 @@ from apps.discord_stats_bot.common.leaderboard_pagination import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-# Kill type choices for autocomplete
-KILL_TYPE_CHOICES = [
-    app_commands.Choice(name="All Kills", value="all"),
-    app_commands.Choice(name="Infantry Kills", value="infantry"),
-    app_commands.Choice(name="Armor Kills", value="armor"),
-    app_commands.Choice(name="Artillery Kills", value="artillery"),
-]
-
-# Aggregate by choices for autocomplete
-AGGREGATE_BY_CHOICES = [
-    app_commands.Choice(name="Average", value="average"),
-    app_commands.Choice(name="Sum", value="sum"),
-]
-
-
-async def kill_type_autocomplete(
-    interaction: discord.Interaction,
-    current: str,
-) -> List[app_commands.Choice[str]]:
-    """Autocomplete function for kill_type parameter."""
-    current_lower = current.lower()
-    matching = [
-        choice for choice in KILL_TYPE_CHOICES
-        if current_lower in choice.name.lower() or current_lower in choice.value.lower()
-    ]
-    return matching[:25]  # Discord limit
-
-
-async def aggregate_by_autocomplete(
-    interaction: discord.Interaction,
-    current: str,
-) -> List[app_commands.Choice[str]]:
-    """Autocomplete function for aggregate_by parameter."""
-    current_lower = current.lower()
-    matching = [
-        choice for choice in AGGREGATE_BY_CHOICES
-        if current_lower in choice.name.lower() or current_lower in choice.value.lower()
-    ]
-    return matching[:25]  # Discord limit
 
 
 async def fetch_kills_leaderboard(
@@ -86,40 +51,30 @@ async def fetch_kills_leaderboard(
         return []
     
     kill_column = config["column"]
-    
-    # Determine aggregation function
     is_average = aggregate_by_lower == "average"
     aggregate_func = "AVG" if is_average else "SUM"
     value_column_name = "avg_kills" if is_average else "total_kills"
 
-    # Calculate time period filter
-    time_filter, base_query_params, time_period_text = create_time_filter_params(over_last_days)
+    time_filter, base_query_params, _ = create_time_filter_params(over_last_days)
         
-    # Connect to database and query
     pool = await get_readonly_db_pool()
     async with pool.acquire() as conn:
         escaped_column = escape_sql_identifier(kill_column)
-        
-        # Get pathfinder player IDs from file if needed
         pathfinder_ids_list = list(get_pathfinder_player_ids()) if only_pathfinders else []
         
-        # Build query components
         param_num = 1
         query_params = []
         
-        # Build FROM clause with optional time filter JOIN
         from_clause, _ = build_from_clause_with_time_filter(
             "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
         )
         
-        # Build time filter WHERE clause
         time_where = ""
         if base_query_params:
             time_where = f"WHERE mh.start_time >= ${param_num}"
             query_params.extend(base_query_params)
             param_num += len(base_query_params)
         
-        # Build pathfinder filter
         pathfinder_where = ""
         if only_pathfinders:
             pathfinder_where, pf_params, param_num = build_pathfinder_filter(
@@ -127,7 +82,6 @@ async def fetch_kills_leaderboard(
             )
             query_params.extend(pf_params)
         
-        # Add match quality filters for average mode (45+ min, 60+ players)
         quality_match_filters = []
         if is_average:
             quality_match_filters.append("pms.time_played >= 2700")
@@ -138,14 +92,12 @@ async def fetch_kills_leaderboard(
                 HAVING COUNT(*) >= 60
             )""")
         
-        # Combine WHERE clauses with kill column filter and match quality filters
         base_filters = [f"pms.{escaped_column} > 0"] + quality_match_filters
         ranked_matches_where = build_where_clause(
             time_where, pathfinder_where,
             base_filter=" AND ".join(base_filters)
         )
         
-        # Build LATERAL join pathfinder filter
         lateral_where = ""
         if only_pathfinders:
             lateral_where, lateral_params, param_num = build_pathfinder_filter(
@@ -153,41 +105,37 @@ async def fetch_kills_leaderboard(
             )
             query_params.extend(lateral_params)
         
-        # Build LATERAL JOIN for player name lookup
         lateral_join = build_lateral_name_lookup("tp.player_id", lateral_where)
         
-        # Build query to get top players by average or sum of kills from all matches
         query = f"""
-                WITH player_stats AS (
-                    SELECT
-                        pms.player_id,
-                        {aggregate_func}(pms.{escaped_column}) as {value_column_name}
-                    {from_clause}
-                    {ranked_matches_where}
-                    GROUP BY pms.player_id
-                ),
-                top_players AS (
-                    SELECT
-                        ps.player_id,
-                        ps.{value_column_name}
-                    FROM player_stats ps
-                    ORDER BY ps.{value_column_name} DESC
-                    LIMIT {TOP_PLAYERS_LIMIT}
-                )
+            WITH player_stats AS (
                 SELECT
-                    tp.player_id,
-                    COALESCE(rn.player_name, tp.player_id) as player_name,
-                    tp.{value_column_name}
-                FROM top_players tp
-                {lateral_join}
-                ORDER BY tp.{value_column_name} DESC
-            """
+                    pms.player_id,
+                    {aggregate_func}(pms.{escaped_column}) as {value_column_name}
+                {from_clause}
+                {ranked_matches_where}
+                GROUP BY pms.player_id
+            ),
+            top_players AS (
+                SELECT
+                    ps.player_id,
+                    ps.{value_column_name}
+                FROM player_stats ps
+                ORDER BY ps.{value_column_name} DESC
+                LIMIT {TOP_PLAYERS_LIMIT}
+            )
+            SELECT
+                tp.player_id,
+                COALESCE(rn.player_name, tp.player_id) as player_name,
+                tp.{value_column_name}
+            FROM top_players tp
+            {lateral_join}
+            ORDER BY tp.{value_column_name} DESC
+        """
         
         logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
-        
         results = await conn.fetch(query, *query_params)
         
-        # Convert to list of dicts and format values
         formatted_results = []
         for row in results:
             result_dict = dict(row)
@@ -199,69 +147,64 @@ async def fetch_kills_leaderboard(
 
 
 def register_kills_subcommand(leaderboard_group: app_commands.Group, channel_check=None) -> None:
-    """
-    Register the topkills subcommand with the leaderboard group.
+    """Register the kills subcommand with the leaderboard group."""
     
-    Args:
-        leaderboard_group: The leaderboard command group to register the subcommand with
-        channel_check: Optional function to check if the channel is allowed
-    """
-    @leaderboard_group.command(name="kills", description="Get top players by average or sum of kills from all matches")
+    @leaderboard_group.command(
+        name="kills", 
+        description="Get top players by average or sum of kills from all matches"
+    )
     @app_commands.describe(
-        kill_type="(Optional) The kill type to filter by (All Kills, Infantry Kills, Armor Kills, Artillery Kills)",
+        kill_type="(Optional) The kill type to filter by",
         aggregate_by="(Optional) Whether to use average or sum (default: average)",
         only_pathfinders="(Optional) If true, only show Pathfinder players (default: false)"
     )
     @app_commands.autocomplete(kill_type=kill_type_autocomplete)
     @app_commands.autocomplete(aggregate_by=aggregate_by_autocomplete)
     @command_wrapper("leaderboard kills", channel_check=channel_check)
-    async def leaderboard_topkills(interaction: discord.Interaction, kill_type: str = "all", aggregate_by: str = "average", only_pathfinders: bool = False):
-        """Get top players by average or sum of kills from all matches with optional kill type filtering."""
+    async def leaderboard_kills(
+        interaction: discord.Interaction, 
+        kill_type: str = "all", 
+        aggregate_by: str = "average", 
+        only_pathfinders: bool = False
+    ):
+        """Get top players by average or sum of kills from all matches."""
         command_start_time = time.time()
+        log_kwargs = {"kill_type": kill_type, "aggregate_by": aggregate_by, "only_pathfinders": only_pathfinders}
 
-        # Validate kill_type
         try:
             kill_type_lower = validate_choice_parameter(
-                "kill type", kill_type, {"all", "infantry", "armor", "artillery"},
-                ["All Kills", "Infantry Kills", "Armor Kills", "Artillery Kills"]
+                "kill type", kill_type, KILL_TYPE_VALID_VALUES, KILL_TYPE_DISPLAY_LIST
             )
         except ValueError as e:
             await interaction.followup.send(str(e), ephemeral=True)
-            log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs={"kill_type": kill_type, "aggregate_by": aggregate_by, "only_pathfinders": only_pathfinders})
+            log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
         
-        # Validate aggregate_by
         try:
             aggregate_by_lower = validate_choice_parameter(
-                "aggregate by", aggregate_by, {"average", "sum"},
-                ["Average", "Sum"]
+                "aggregate by", aggregate_by, AGGREGATE_BY_VALID_VALUES, AGGREGATE_BY_DISPLAY_LIST
             )
         except ValueError as e:
             await interaction.followup.send(str(e), ephemeral=True)
-            log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs={"kill_type": kill_type, "aggregate_by": aggregate_by, "only_pathfinders": only_pathfinders})
+            log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
             
-        # Get kill type configuration from constants
         config = KILL_TYPE_CONFIG.get(kill_type_lower)
         if not config:
             await interaction.followup.send(f"❌ Invalid kill type: {kill_type}", ephemeral=True)
-            log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs={"kill_type": kill_type, "aggregate_by": aggregate_by, "only_pathfinders": only_pathfinders})
+            log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
         
         display_name = config["display_name"]
-        
-        # Determine value column and labels
         is_average = aggregate_by_lower == "average"
         aggregate_label = "Average" if is_average else "Sum"
         value_column_name = "avg_kills" if is_average else "total_kills"
         
-        # Default timeframe
         default_timeframe = "30d"
         default_days = TIMEFRAME_OPTIONS[default_timeframe]["days"]
         
-        logger.info(f"Querying top players by {aggregate_label.lower()} of {display_name} from all matches")
+        logger.info(f"Querying top players by {aggregate_label.lower()} of {display_name}")
         
-        # Fetch initial data
         results = await fetch_kills_leaderboard(
             kill_type_lower, aggregate_by_lower, only_pathfinders, default_days
         )
@@ -271,29 +214,24 @@ def register_kills_subcommand(leaderboard_group: app_commands.Group, channel_che
                 f"❌ No data found for `{display_name}` from all matches.",
                 ephemeral=True
             )
-            log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs={"kill_type": kill_type, "aggregate_by": aggregate_by, "only_pathfinders": only_pathfinders})
+            log_command_completion("leaderboard kills", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
 
-        # Create fetch function for timeframe changes
         async def fetch_data(days: int) -> List[Dict[str, Any]]:
             return await fetch_kills_leaderboard(
                 kill_type_lower, aggregate_by_lower, only_pathfinders, days
             )
         
-        # Format value function
         def format_value(value):
             if is_average:
-                # Only show decimals if they're non-zero
                 if abs(value - round(value)) < 0.001:
                     return f"{int(round(value)):,}"
                 return f"{value:.2f}"
             return f"{int(value):,}"
         
-        # Build title
         filter_text = " (Pathfinders Only)" if only_pathfinders else ""
         title = f"Top Players - {aggregate_label} of {display_name}{filter_text}"
         
-        # Send paginated leaderboard using user's format preference
         await send_paginated_leaderboard(
             interaction=interaction,
             results=results,
@@ -306,4 +244,4 @@ def register_kills_subcommand(leaderboard_group: app_commands.Group, channel_che
             fetch_data_func=fetch_data,
             show_timeframe_in_title=True
         )
-        log_command_completion("leaderboard kills", command_start_time, success=True, interaction=interaction, kwargs={"kill_type": kill_type, "aggregate_by": aggregate_by, "only_pathfinders": only_pathfinders})
+        log_command_completion("leaderboard kills", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)

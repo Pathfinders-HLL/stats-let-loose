@@ -9,77 +9,77 @@ import discord
 from discord import app_commands
 from tabulate import tabulate
 
-from apps.discord_stats_bot.common.player_id_cache import get_player_id
-from apps.discord_stats_bot.common.shared import (
+from apps.discord_stats_bot.common import (
     get_readonly_db_pool,
     find_player_by_id_or_name,
     log_command_completion,
     validate_over_last_days,
     create_time_filter_params,
-    command_wrapper
+    command_wrapper,
+    get_player_id,
 )
 
 logger = logging.getLogger(__name__)
 
 
 def register_nemesis_subcommand(player_group: app_commands.Group, channel_check=None) -> None:
-    """
-    Register the nemesis subcommand with the player group.
+    """Register the nemesis subcommand with the player group."""
     
-    Args:
-        player_group: The player command group to register the subcommand with
-        channel_check: Optional function to check if the channel is allowed
-    """
-    @player_group.command(name="nemesis", description="Get top 25 players who killed you the most")
+    @player_group.command(
+        name="nemesis", 
+        description="Get top 25 players who killed you the most"
+    )
     @app_commands.describe(
-        player="(Optional) The player ID or player name (optional if you've set one with /profile setid)",
+        player="(Optional) The player ID or player name",
         over_last_days="(Optional) Number of days to look back (default: 30, use 0 for all-time)"
     )
     @command_wrapper("player nemesis", channel_check=channel_check)
-    async def player_nemesis(interaction: discord.Interaction, player: str = None, over_last_days: int = 30):
+    async def player_nemesis(
+        interaction: discord.Interaction, 
+        player: str = None, 
+        over_last_days: int = 30
+    ):
         """Get top 25 players who killed you the most."""
         command_start_time = time.time()
+        log_kwargs = {"player": player, "over_last_days": over_last_days}
 
-        # Validate over_last_days (allow 0 for all-time, but otherwise 1-180)
         try:
             validate_over_last_days(over_last_days)
         except ValueError as e:
             await interaction.followup.send(str(e))
-            log_command_completion("player nemesis", command_start_time, success=False, interaction=interaction, kwargs={"player": player, "over_last_days": over_last_days})
+            log_command_completion("player nemesis", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
 
-        # If player not provided, try to get stored one from cache
         if not player:
             stored_player_id = await get_player_id(interaction.user.id)
             if stored_player_id:
                 player = stored_player_id
             else:
-                await interaction.followup.send("❌ No player ID provided and you haven't set one! Either provide a player ID/name, or use `/profile setid` to set a default.", ephemeral=True)
+                await interaction.followup.send(
+                    "❌ No player ID provided and you haven't set one! "
+                    "Either provide a player ID/name, or use `/profile setid` to set a default.", 
+                    ephemeral=True
+                )
                 return
 
-        # Connect to database and query
         pool = await get_readonly_db_pool()
         async with pool.acquire() as conn:
-            # Find player by ID or name
             player_id, found_player_name = await find_player_by_id_or_name(conn, player)
 
             if not player_id:
-                await interaction.followup.send(f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.")
-                log_command_completion("player nemesis", command_start_time, success=False, interaction=interaction, kwargs={"player": player, "over_last_days": over_last_days})
+                await interaction.followup.send(
+                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name."
+                )
+                log_command_completion("player nemesis", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
 
-            # Calculate time period filter
             time_filter, base_query_params, time_period_text = create_time_filter_params(over_last_days)
             
-            # Adjust parameter number in time_filter if we have base params
-            # Since player_id is $1, time_threshold needs to be $2
             if base_query_params:
                 time_filter = time_filter.replace("$1", "$2")
             
             query_params = [player_id] + base_query_params
                     
-            # Build query to get top 25 nemeses (players who killed you the most)
-            # Aggregate death_count by nemesis_name across all matches
             query = f"""
                 SELECT
                     pn.nemesis_name,
@@ -103,13 +103,11 @@ def register_nemesis_subcommand(player_group: app_commands.Group, channel_check=
                 await interaction.followup.send(
                     f"❌ No nemesis data found for player `{found_player_name or player}`{time_period_text}."
                 )
-                log_command_completion("player nemesis", command_start_time, success=False, interaction=interaction, kwargs={"player": player, "over_last_days": over_last_days})
+                log_command_completion("player nemesis", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
 
-            # Format results as a table
             display_player_name = found_player_name if found_player_name else player
             
-            # Prepare data for table formatting
             table_data = []
             for rank, row in enumerate(results, 1):
                 nemesis_name = row['nemesis_name']
@@ -123,14 +121,13 @@ def register_nemesis_subcommand(player_group: app_commands.Group, channel_check=
                     matches_encountered
                 ])
 
-            # Headers for the table
             headers = ["#", "Nemesis", "Deaths", "Matches"]
             
-            # Build message, removing rows if needed to fit Discord's 2000 character limit
-            message_prefix_lines = [f"## Top 25 Nemeses - {display_player_name}{time_period_text}"]
-            message_prefix_lines.append("*Players who killed you the most*")
+            message_prefix_lines = [
+                f"## Top 25 Nemeses - {display_player_name}{time_period_text}",
+                "*Players who killed you the most*"
+            ]
             
-            # Try with all rows first
             for num_rows in range(len(table_data), 0, -1):
                 table_str = tabulate(
                     table_data[:num_rows],
@@ -152,4 +149,4 @@ def register_nemesis_subcommand(player_group: app_commands.Group, channel_check=
                     break
 
             await interaction.followup.send(message)
-            log_command_completion("player nemesis", command_start_time, success=True, interaction=interaction, kwargs={"player": player, "over_last_days": over_last_days})
+            log_command_completion("player nemesis", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)
