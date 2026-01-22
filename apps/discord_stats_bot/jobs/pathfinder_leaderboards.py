@@ -324,8 +324,9 @@ async def _get_most_kills_single_match(
     pathfinder_ids: List[str]
 ) -> List[Dict[str, Any]]:
     """
-    Stat #3: Most infantry kills in a single match.
+    Stat #3: Most kills in a single match.
     No minimum matches required.
+    Excludes matches with high artillery/SPA kills.
     """
     # Calculate time period filter
     _, base_query_params, _ = create_time_filter_params(over_last_days)
@@ -357,7 +358,8 @@ async def _get_most_kills_single_match(
         # Build quality match filters
         quality_filters = [
             f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
-            "pms.match_id IN (SELECT match_id FROM qualified_matches)"
+            "pms.match_id IN (SELECT match_id FROM qualified_matches)",
+            "pms.artillery_kills <= 5 AND pms.spa_kills <= 5"
         ]
         
         # Combine WHERE clauses
@@ -373,11 +375,11 @@ async def _get_most_kills_single_match(
             SELECT DISTINCT ON (pms.player_id)
                 pms.player_id,
                 pms.player_name,
-                pms.infantry_kills as value,
+                pms.total_kills as value,
                 mh.map_name
             {from_clause}
             {player_stats_where}
-            ORDER BY pms.player_id, pms.infantry_kills DESC
+            ORDER BY pms.player_id, pms.total_kills DESC
         """
         
         # First get best match per player, then sort by kills
@@ -479,7 +481,7 @@ async def _get_most_k98_kills(
 ) -> List[Dict[str, Any]]:
     """
     Stat #5: Most Karabiner 98k kills over the time period.
-    Requires minimum 5 matches for qualification.
+    No minimum matches required.
     """
     weapon_mapping = get_weapon_mapping()
     column_name = weapon_mapping.get("karabiner 98k", "karabiner_98k")
@@ -547,8 +549,7 @@ async def _get_most_k98_kills(
                 {from_clause}
                 {kill_stats_where}
                 GROUP BY pks.player_id
-                HAVING COUNT(*) >= {MIN_MATCHES_FOR_AGGREGATE}
-                    AND SUM(pks.{escaped_column}) > 0
+                HAVING SUM(pks.{escaped_column}) > 0
             ),
             top_players AS (
                 SELECT player_id, total_k98_kills, match_count
@@ -741,7 +742,7 @@ STAT_CONFIGS = [
         "value_label": "K98 Kills",
         "color": discord.Color.from_rgb(34, 139, 34),  # forest
         "value_format": "int",
-        "footer_note": f"Min {MIN_MATCHES_FOR_AGGREGATE} matches required"
+        "footer_note": "Total kills with Karabiner 98k"
     },
     {
         "key": "obj_efficiency",
