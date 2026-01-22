@@ -20,6 +20,10 @@ from apps.discord_stats_bot.common.shared import (
 )
 from apps.discord_stats_bot.config import get_bot_config
 from apps.discord_stats_bot.jobs.karabiner_stats import setup_karabiner_stats_task
+from apps.discord_stats_bot.jobs.pathfinder_leaderboards import (
+    setup_pathfinder_leaderboards_task,
+    LeaderboardView,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -112,8 +116,12 @@ async def on_ready():
         activity=discord.Game(name="Use /help for commands")
     )
     
+    # Register persistent views (for buttons/dropdowns that work after bot restart)
+    bot.add_view(LeaderboardView())
+    
     # Start scheduled tasks
     setup_karabiner_stats_task(bot)
+    setup_pathfinder_leaderboards_task(bot)
 
 
 @bot.event
