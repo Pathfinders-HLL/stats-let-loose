@@ -143,9 +143,9 @@ async def _get_most_infantry_kills(
         param_num = 1
         query_params = []
         
-        # Build FROM clause with optional time filter JOIN
+        # Build FROM clause - always include match_history JOIN for mh.match_duration filter
         from_clause, _ = build_from_clause_with_time_filter(
-            "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
+            "pathfinder_stats.player_match_stats", "pms", True
         )
         
         # Build time filter WHERE clause
@@ -238,9 +238,9 @@ async def _get_average_kd(
         param_num = 1
         query_params = []
         
-        # Build FROM clause with optional time filter JOIN
+        # Build FROM clause - always include match_history JOIN for mh.match_duration filter
         from_clause, _ = build_from_clause_with_time_filter(
-            "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
+            "pathfinder_stats.player_match_stats", "pms", True
         )
         
         # Build time filter WHERE clause
@@ -334,9 +334,9 @@ async def _get_most_kills_single_match(
         param_num = 1
         query_params = []
         
-        # Build FROM clause with optional time filter JOIN
+        # Build FROM clause - always include match_history JOIN for mh.match_duration and mh.map_name
         from_clause, _ = build_from_clause_with_time_filter(
-            "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
+            "pathfinder_stats.player_match_stats", "pms", True
         )
         
         # Build time filter WHERE clause
@@ -411,9 +411,9 @@ async def _get_best_kd_single_match(
         param_num = 1
         query_params = []
         
-        # Build FROM clause with optional time filter JOIN
+        # Build FROM clause - always include match_history JOIN for mh.match_duration and mh.map_name
         from_clause, _ = build_from_clause_with_time_filter(
-            "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
+            "pathfinder_stats.player_match_stats", "pms", True
         )
         
         # Build time filter WHERE clause
@@ -492,9 +492,9 @@ async def _get_most_k98_kills(
         param_num = 1
         query_params = []
         
-        # Build FROM clause with optional time filter JOIN (uses player_kill_stats)
+        # Build FROM clause - always include match_history JOIN for mh.match_duration filter
         from_clause, _ = build_from_clause_with_time_filter(
-            "pathfinder_stats.player_kill_stats", "pks", bool(base_query_params)
+            "pathfinder_stats.player_kill_stats", "pks", True
         )
         
         # Build time filter WHERE clause
@@ -588,9 +588,9 @@ async def _get_avg_objective_efficiency(
         param_num = 1
         query_params = []
         
-        # Build FROM clause with optional time filter JOIN
+        # Build FROM clause - always include match_history JOIN for mh.match_duration filter
         from_clause, _ = build_from_clause_with_time_filter(
-            "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
+            "pathfinder_stats.player_match_stats", "pms", True
         )
         
         # Build time filter WHERE clause
