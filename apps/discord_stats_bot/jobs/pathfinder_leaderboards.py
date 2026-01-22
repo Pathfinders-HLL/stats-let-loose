@@ -38,6 +38,10 @@ TIMEFRAME_OPTIONS = {
     "all": {"days": 0, "label": "All Time"},
 }
 
+# Global cache for pre-computed leaderboard results
+# Structure: {timeframe_key: {"stats": {}, "embeds": [], "timestamp": datetime}}
+_leaderboard_cache: Dict[str, Dict[str, Any]] = {}
+
 
 def _get_time_threshold(days: int) -> Optional[datetime]:
     """Get time threshold for filtering, or None for all-time."""
@@ -659,21 +663,30 @@ class TimeframeSelect(discord.ui.Select):
         )
     
     async def callback(self, interaction: discord.Interaction):
-        """Handle timeframe selection."""
+        """Handle timeframe selection using cached data."""
         await interaction.response.defer(ephemeral=True)
         
         try:
             selected = self.values[0]
             timeframe_config = TIMEFRAME_OPTIONS.get(selected, TIMEFRAME_OPTIONS["7d"])
-            days = timeframe_config["days"]
             label = timeframe_config["label"]
             
-            # Fetch stats for selected timeframe
-            stats = await fetch_all_leaderboard_stats(days)
-            embeds = build_leaderboard_embeds(stats, label)
+            # Check if we have cached data for this timeframe
+            cached_data = _leaderboard_cache.get(selected)
+            
+            if cached_data and cached_data.get("embeds"):
+                # Use pre-computed embeds from cache
+                embeds = cached_data["embeds"]
+                cache_age = (datetime.now(timezone.utc) - cached_data["timestamp"]).total_seconds()
+                logger.info(f"Using cached leaderboard data for {selected} (age: {cache_age:.0f}s)")
+            else:
+                # Fallback: compute on-demand if cache is empty (shouldn't happen in normal operation)
+                logger.warning(f"Cache miss for timeframe {selected}, computing on-demand")
+                days = timeframe_config["days"]
+                stats = await fetch_all_leaderboard_stats(days)
+                embeds = build_leaderboard_embeds(stats, label)
             
             # Send ephemeral response with all embeds
-            # Discord allows up to 10 embeds per message
             await interaction.followup.send(
                 content=f"**Pathfinder Leaderboards - {label}**",
                 embeds=embeds,
@@ -695,6 +708,47 @@ class LeaderboardView(discord.ui.View):
         # Set timeout to None for persistent view
         super().__init__(timeout=None)
         self.add_item(TimeframeSelect())
+
+
+@tasks.loop(minutes=20)
+async def refresh_leaderboard_cache():
+    """
+    Pre-compute and cache leaderboard data for all timeframes.
+    Runs every 20 minutes to keep cache fresh.
+    """
+    global _leaderboard_cache
+    
+    try:
+        logger.info("Starting leaderboard cache refresh...")
+        now_utc = datetime.now(timezone.utc)
+        
+        # Pre-compute stats for all timeframes
+        for timeframe_key, config in TIMEFRAME_OPTIONS.items():
+            try:
+                days = config["days"]
+                label = config["label"]
+                
+                # Fetch stats and build embeds
+                stats = await fetch_all_leaderboard_stats(days)
+                embeds = build_leaderboard_embeds(stats, label)
+                
+                # Store in cache
+                _leaderboard_cache[timeframe_key] = {
+                    "stats": stats,
+                    "embeds": embeds,
+                    "timestamp": now_utc,
+                    "label": label
+                }
+                
+                logger.info(f"Cached leaderboard data for {timeframe_key} ({label})")
+                
+            except Exception as e:
+                logger.error(f"Error caching leaderboard data for {timeframe_key}: {e}", exc_info=True)
+        
+        logger.info(f"Leaderboard cache refresh complete. Cached {len(_leaderboard_cache)} timeframes.")
+        
+    except Exception as e:
+        logger.error(f"Error in refresh_leaderboard_cache task: {e}", exc_info=True)
 
 
 @tasks.loop(minutes=30)
@@ -719,9 +773,17 @@ async def post_pathfinder_leaderboards():
             logger.error(f"Channel {stats_channel_id} not found")
             return
         
-        # Fetch stats for default 7-day period
-        stats = await fetch_all_leaderboard_stats(days=7)
-        embeds = build_leaderboard_embeds(stats, "Last 7 Days")
+        # Use cached data for default 7-day period
+        cached_7d = _leaderboard_cache.get("7d")
+        
+        if cached_7d and cached_7d.get("embeds"):
+            embeds = cached_7d["embeds"]
+            logger.info("Using cached embeds for leaderboard posting")
+        else:
+            # Fallback: compute on-demand if cache is empty
+            logger.warning("Cache empty, computing 7d leaderboard stats on-demand")
+            stats = await fetch_all_leaderboard_stats(days=7)
+            embeds = build_leaderboard_embeds(stats, "Last 7 Days")
         
         # Create the view with timeframe selector
         view = LeaderboardView()
@@ -780,16 +842,38 @@ async def post_pathfinder_leaderboards():
 
 
 def setup_pathfinder_leaderboards_task(bot: discord.Client) -> None:
-    """Start the scheduled leaderboards posting task."""
+    """Start the scheduled leaderboards posting and cache refresh tasks."""
     global _bot_instance
     _bot_instance = bot
+    
+    @refresh_leaderboard_cache.before_loop
+    async def before_cache_refresh():
+        await bot.wait_until_ready()
+        # Populate cache immediately on startup
+        logger.info("Performing initial leaderboard cache population...")
+        try:
+            await refresh_leaderboard_cache.coro()
+        except Exception as e:
+            logger.error(f"Error in initial cache population: {e}", exc_info=True)
     
     @post_pathfinder_leaderboards.before_loop
     async def before_leaderboards():
         await bot.wait_until_ready()
+        # Ensure cache is populated before first post
+        if not _leaderboard_cache:
+            logger.info("Waiting for cache to populate before posting leaderboards...")
+            await refresh_leaderboard_cache.coro()
     
+    # Start cache refresh task (every 20 min)
+    if not refresh_leaderboard_cache.is_running():
+        refresh_leaderboard_cache.start()
+        logger.info("Started leaderboard cache refresh task (every 20 min)")
+    else:
+        logger.warning("Leaderboard cache refresh task already running")
+    
+    # Start posting task (every 30 min)
     if not post_pathfinder_leaderboards.is_running():
         post_pathfinder_leaderboards.start()
-        logger.info("Started Pathfinder leaderboards task (every 30 min)")
+        logger.info("Started Pathfinder leaderboards posting task (every 30 min)")
     else:
-        logger.warning("Pathfinder leaderboards task already running")
+        logger.warning("Pathfinder leaderboards posting task already running")
