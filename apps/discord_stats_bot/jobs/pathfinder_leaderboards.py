@@ -10,7 +10,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
@@ -23,6 +23,10 @@ from apps.discord_stats_bot.common.shared import (
     get_pathfinder_player_ids,
     build_pathfinder_filter,
     format_sql_query_with_params,
+    build_lateral_name_lookup,
+    build_from_clause_with_time_filter,
+    build_where_clause,
+    create_time_filter_params,
 )
 from apps.discord_stats_bot.common.weapon_autocomplete import get_weapon_mapping
 from apps.discord_stats_bot.config import get_bot_config
@@ -113,14 +117,6 @@ async def _save_leaderboard_state(message_id: int, channel_id: int) -> None:
         logger.error(f"Failed to save leaderboard state to {LEADERBOARD_STATE_FILE}: {e}", exc_info=True)
 
 
-def _get_time_threshold(days: int) -> Optional[datetime]:
-    """Get time threshold for filtering, or None for all-time."""
-    if days <= 0:
-        return None
-    threshold = datetime.now(timezone.utc) - timedelta(days=days)
-    return threshold.replace(tzinfo=None)  # Convert to naive for DB
-
-
 def _build_quality_match_subquery() -> str:
     """Build subquery to filter matches with 60+ players."""
     return """
@@ -133,33 +129,62 @@ def _build_quality_match_subquery() -> str:
 
 async def _get_most_infantry_kills(
     pool, 
-    time_threshold: Optional[datetime],
+    over_last_days: int,
     pathfinder_ids: List[str]
 ) -> List[Dict[str, Any]]:
     """
     Stat #1: Most infantry kills over the time period.
     Requires minimum 5 matches for qualification.
     """
+    # Calculate time period filter
+    _, base_query_params, _ = create_time_filter_params(over_last_days)
+    
     async with pool.acquire() as conn:
-        params = []
         param_num = 1
+        query_params = []
         
-        time_filter = ""
-        if time_threshold:
-            time_filter = f"AND mh.start_time >= ${param_num}"
-            params.append(time_threshold)
-            param_num += 1
-        
-        pf_filter, pf_params, param_num = build_pathfinder_filter(
-            "pms", param_num, pathfinder_ids, use_and=True
+        # Build FROM clause with optional time filter JOIN
+        from_clause, _ = build_from_clause_with_time_filter(
+            "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
         )
-        params.extend(pf_params)
         
-        # Build lateral pathfinder filter
-        lateral_pf_filter, lateral_params, _ = build_pathfinder_filter(
-            "pms", param_num, pathfinder_ids, use_and=True
+        # Build time filter WHERE clause
+        time_where = ""
+        if base_query_params:
+            time_where = f"WHERE mh.start_time >= ${param_num}"
+            query_params.extend(base_query_params)
+            param_num += len(base_query_params)
+        
+        # Build pathfinder filter
+        pathfinder_where = ""
+        if pathfinder_ids:
+            pathfinder_where, pf_params, param_num = build_pathfinder_filter(
+                "pms", param_num, pathfinder_ids, use_and=bool(time_where)
+            )
+            query_params.extend(pf_params)
+        
+        # Build quality match filters
+        quality_filters = [
+            f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
+            "pms.match_id IN (SELECT match_id FROM qualified_matches)"
+        ]
+        
+        # Combine WHERE clauses
+        player_stats_where = build_where_clause(
+            time_where, pathfinder_where,
+            base_filter=" AND ".join(quality_filters)
         )
-        params.extend(lateral_params)
+        
+        # Build LATERAL join pathfinder filter
+        lateral_where = ""
+        if pathfinder_ids:
+            lateral_where, lateral_params, param_num = build_pathfinder_filter(
+                "pms", param_num, pathfinder_ids, use_and=True
+            )
+            query_params.extend(lateral_params)
+        
+        # Build LATERAL JOIN for player name lookup
+        lateral_join = build_lateral_name_lookup("tp.player_id", lateral_where)
         
         query = f"""
             WITH qualified_matches AS (
@@ -170,12 +195,8 @@ async def _get_most_infantry_kills(
                     pms.player_id,
                     SUM(pms.infantry_kills) as total_infantry_kills,
                     COUNT(*) as match_count
-                FROM pathfinder_stats.player_match_stats pms
-                INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-                WHERE mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}
-                    AND pms.match_id IN (SELECT match_id FROM qualified_matches)
-                    {time_filter}
-                    {pf_filter}
+                {from_clause}
+                {player_stats_where}
                 GROUP BY pms.player_id
                 HAVING COUNT(*) >= {MIN_MATCHES_FOR_AGGREGATE}
             ),
@@ -191,52 +212,75 @@ async def _get_most_infantry_kills(
                 tp.match_count,
                 COALESCE(rn.player_name, tp.player_id) as player_name
             FROM top_players tp
-            LEFT JOIN LATERAL (
-                SELECT pms.player_name
-                FROM pathfinder_stats.player_match_stats pms
-                INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-                WHERE pms.player_id = tp.player_id
-                    {lateral_pf_filter}
-                ORDER BY mh.start_time DESC
-                LIMIT 1
-            ) rn ON TRUE
+            {lateral_join}
             ORDER BY tp.total_infantry_kills DESC
         """
         
-        logger.info(f"SQL Query: {format_sql_query_with_params(query, params)}")
+        logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
         
-        results = await conn.fetch(query, *params)
+        results = await conn.fetch(query, *query_params)
         return [dict(row) for row in results]
 
 
 async def _get_average_kd(
     pool,
-    time_threshold: Optional[datetime],
+    over_last_days: int,
     pathfinder_ids: List[str]
 ) -> List[Dict[str, Any]]:
     """
     Stat #2: Average K/D ratio over the time period.
     Requires minimum 5 matches for qualification.
     """
+    # Calculate time period filter
+    _, base_query_params, _ = create_time_filter_params(over_last_days)
+    
     async with pool.acquire() as conn:
-        params = []
         param_num = 1
+        query_params = []
         
-        time_filter = ""
-        if time_threshold:
-            time_filter = f"AND mh.start_time >= ${param_num}"
-            params.append(time_threshold)
-            param_num += 1
-        
-        pf_filter, pf_params, param_num = build_pathfinder_filter(
-            "pms", param_num, pathfinder_ids, use_and=True
+        # Build FROM clause with optional time filter JOIN
+        from_clause, _ = build_from_clause_with_time_filter(
+            "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
         )
-        params.extend(pf_params)
         
-        lateral_pf_filter, lateral_params, _ = build_pathfinder_filter(
-            "pms", param_num, pathfinder_ids, use_and=True
+        # Build time filter WHERE clause
+        time_where = ""
+        if base_query_params:
+            time_where = f"WHERE mh.start_time >= ${param_num}"
+            query_params.extend(base_query_params)
+            param_num += len(base_query_params)
+        
+        # Build pathfinder filter
+        pathfinder_where = ""
+        if pathfinder_ids:
+            pathfinder_where, pf_params, param_num = build_pathfinder_filter(
+                "pms", param_num, pathfinder_ids, use_and=bool(time_where)
+            )
+            query_params.extend(pf_params)
+        
+        # Build quality match filters
+        quality_filters = [
+            f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
+            "pms.match_id IN (SELECT match_id FROM qualified_matches)",
+            f"pms.time_played >= {MIN_MATCH_DURATION_SECONDS}"
+        ]
+        
+        # Combine WHERE clauses
+        player_stats_where = build_where_clause(
+            time_where, pathfinder_where,
+            base_filter=" AND ".join(quality_filters)
         )
-        params.extend(lateral_params)
+        
+        # Build LATERAL join pathfinder filter
+        lateral_where = ""
+        if pathfinder_ids:
+            lateral_where, lateral_params, param_num = build_pathfinder_filter(
+                "pms", param_num, pathfinder_ids, use_and=True
+            )
+            query_params.extend(lateral_params)
+        
+        # Build LATERAL JOIN for player name lookup
+        lateral_join = build_lateral_name_lookup("tp.player_id", lateral_where)
         
         query = f"""
             WITH qualified_matches AS (
@@ -247,13 +291,8 @@ async def _get_average_kd(
                     pms.player_id,
                     AVG(pms.kill_death_ratio) as avg_kd,
                     COUNT(*) as match_count
-                FROM pathfinder_stats.player_match_stats pms
-                INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-                WHERE mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}
-                    AND pms.match_id IN (SELECT match_id FROM qualified_matches)
-                    AND pms.time_played >= {MIN_MATCH_DURATION_SECONDS}
-                    {time_filter}
-                    {pf_filter}
+                {from_clause}
+                {player_stats_where}
                 GROUP BY pms.player_id
                 HAVING COUNT(*) >= {MIN_MATCHES_FOR_AGGREGATE}
             ),
@@ -269,47 +308,63 @@ async def _get_average_kd(
                 tp.match_count,
                 COALESCE(rn.player_name, tp.player_id) as player_name
             FROM top_players tp
-            LEFT JOIN LATERAL (
-                SELECT pms.player_name
-                FROM pathfinder_stats.player_match_stats pms
-                INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-                WHERE pms.player_id = tp.player_id
-                    {lateral_pf_filter}
-                ORDER BY mh.start_time DESC
-                LIMIT 1
-            ) rn ON TRUE
+            {lateral_join}
             ORDER BY tp.avg_kd DESC
         """
         
-        logger.info(f"SQL Query: {format_sql_query_with_params(query, params)}")
+        logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
         
-        results = await conn.fetch(query, *params)
+        results = await conn.fetch(query, *query_params)
         return [dict(row) for row in results]
 
 
 async def _get_most_kills_single_match(
     pool,
-    time_threshold: Optional[datetime],
+    over_last_days: int,
     pathfinder_ids: List[str]
 ) -> List[Dict[str, Any]]:
     """
     Stat #3: Most infantry kills in a single match.
     No minimum matches required.
     """
+    # Calculate time period filter
+    _, base_query_params, _ = create_time_filter_params(over_last_days)
+    
     async with pool.acquire() as conn:
-        params = []
         param_num = 1
+        query_params = []
         
-        time_filter = ""
-        if time_threshold:
-            time_filter = f"AND mh.start_time >= ${param_num}"
-            params.append(time_threshold)
-            param_num += 1
-        
-        pf_filter, pf_params, param_num = build_pathfinder_filter(
-            "pms", param_num, pathfinder_ids, use_and=True
+        # Build FROM clause with optional time filter JOIN
+        from_clause, _ = build_from_clause_with_time_filter(
+            "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
         )
-        params.extend(pf_params)
+        
+        # Build time filter WHERE clause
+        time_where = ""
+        if base_query_params:
+            time_where = f"WHERE mh.start_time >= ${param_num}"
+            query_params.extend(base_query_params)
+            param_num += len(base_query_params)
+        
+        # Build pathfinder filter
+        pathfinder_where = ""
+        if pathfinder_ids:
+            pathfinder_where, pf_params, param_num = build_pathfinder_filter(
+                "pms", param_num, pathfinder_ids, use_and=bool(time_where)
+            )
+            query_params.extend(pf_params)
+        
+        # Build quality match filters
+        quality_filters = [
+            f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
+            "pms.match_id IN (SELECT match_id FROM qualified_matches)"
+        ]
+        
+        # Combine WHERE clauses
+        player_stats_where = build_where_clause(
+            time_where, pathfinder_where,
+            base_filter=" AND ".join(quality_filters)
+        )
         
         query = f"""
             WITH qualified_matches AS (
@@ -320,12 +375,8 @@ async def _get_most_kills_single_match(
                 pms.player_name,
                 pms.infantry_kills as value,
                 mh.map_name
-            FROM pathfinder_stats.player_match_stats pms
-            INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-            WHERE mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}
-                AND pms.match_id IN (SELECT match_id FROM qualified_matches)
-                {time_filter}
-                {pf_filter}
+            {from_clause}
+            {player_stats_where}
             ORDER BY pms.player_id, pms.infantry_kills DESC
         """
         
@@ -338,35 +389,60 @@ async def _get_most_kills_single_match(
             LIMIT {TOP_PLAYERS_LIMIT}
         """
         
-        logger.info(f"SQL Query: {format_sql_query_with_params(wrapper_query, params)}")
+        logger.info(f"SQL Query: {format_sql_query_with_params(wrapper_query, query_params)}")
         
-        results = await conn.fetch(wrapper_query, *params)
+        results = await conn.fetch(wrapper_query, *query_params)
         return [dict(row) for row in results]
 
 
 async def _get_best_kd_single_match(
     pool,
-    time_threshold: Optional[datetime],
+    over_last_days: int,
     pathfinder_ids: List[str]
 ) -> List[Dict[str, Any]]:
     """
     Stat #4: Best K/D ratio in a single match.
     No minimum matches required.
     """
+    # Calculate time period filter
+    _, base_query_params, _ = create_time_filter_params(over_last_days)
+    
     async with pool.acquire() as conn:
-        params = []
         param_num = 1
+        query_params = []
         
-        time_filter = ""
-        if time_threshold:
-            time_filter = f"AND mh.start_time >= ${param_num}"
-            params.append(time_threshold)
-            param_num += 1
-        
-        pf_filter, pf_params, param_num = build_pathfinder_filter(
-            "pms", param_num, pathfinder_ids, use_and=True
+        # Build FROM clause with optional time filter JOIN
+        from_clause, _ = build_from_clause_with_time_filter(
+            "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
         )
-        params.extend(pf_params)
+        
+        # Build time filter WHERE clause
+        time_where = ""
+        if base_query_params:
+            time_where = f"WHERE mh.start_time >= ${param_num}"
+            query_params.extend(base_query_params)
+            param_num += len(base_query_params)
+        
+        # Build pathfinder filter
+        pathfinder_where = ""
+        if pathfinder_ids:
+            pathfinder_where, pf_params, param_num = build_pathfinder_filter(
+                "pms", param_num, pathfinder_ids, use_and=bool(time_where)
+            )
+            query_params.extend(pf_params)
+        
+        # Build quality match filters
+        quality_filters = [
+            f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
+            "pms.match_id IN (SELECT match_id FROM qualified_matches)",
+            f"pms.time_played >= {MIN_MATCH_DURATION_SECONDS}"
+        ]
+        
+        # Combine WHERE clauses
+        player_stats_where = build_where_clause(
+            time_where, pathfinder_where,
+            base_filter=" AND ".join(quality_filters)
+        )
         
         query = f"""
             WITH qualified_matches AS (
@@ -377,13 +453,8 @@ async def _get_best_kd_single_match(
                 pms.player_name,
                 pms.kill_death_ratio as value,
                 mh.map_name
-            FROM pathfinder_stats.player_match_stats pms
-            INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-            WHERE mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}
-                AND pms.match_id IN (SELECT match_id FROM qualified_matches)
-                AND pms.time_played >= {MIN_MATCH_DURATION_SECONDS}
-                {time_filter}
-                {pf_filter}
+            {from_clause}
+            {player_stats_where}
             ORDER BY pms.player_id, pms.kill_death_ratio DESC
         """
         
@@ -395,15 +466,15 @@ async def _get_best_kd_single_match(
             LIMIT {TOP_PLAYERS_LIMIT}
         """
         
-        logger.info(f"SQL Query: {format_sql_query_with_params(wrapper_query, params)}")
+        logger.info(f"SQL Query: {format_sql_query_with_params(wrapper_query, query_params)}")
         
-        results = await conn.fetch(wrapper_query, *params)
+        results = await conn.fetch(wrapper_query, *query_params)
         return [dict(row) for row in results]
 
 
 async def _get_most_k98_kills(
     pool,
-    time_threshold: Optional[datetime],
+    over_last_days: int,
     pathfinder_ids: List[str]
 ) -> List[Dict[str, Any]]:
     """
@@ -414,25 +485,55 @@ async def _get_most_k98_kills(
     column_name = weapon_mapping.get("karabiner 98k", "karabiner_98k")
     escaped_column = escape_sql_identifier(column_name)
     
+    # Calculate time period filter
+    _, base_query_params, _ = create_time_filter_params(over_last_days)
+    
     async with pool.acquire() as conn:
-        params = []
         param_num = 1
+        query_params = []
         
-        time_filter = ""
-        if time_threshold:
-            time_filter = f"AND mh.start_time >= ${param_num}"
-            params.append(time_threshold)
-            param_num += 1
-        
-        pf_filter, pf_params, param_num = build_pathfinder_filter(
-            "pks", param_num, pathfinder_ids, use_and=True
+        # Build FROM clause with optional time filter JOIN (uses player_kill_stats)
+        from_clause, _ = build_from_clause_with_time_filter(
+            "pathfinder_stats.player_kill_stats", "pks", bool(base_query_params)
         )
-        params.extend(pf_params)
         
-        lateral_pf_filter, lateral_params, _ = build_pathfinder_filter(
-            "pms", param_num, pathfinder_ids, use_and=True
+        # Build time filter WHERE clause
+        time_where = ""
+        if base_query_params:
+            time_where = f"WHERE mh.start_time >= ${param_num}"
+            query_params.extend(base_query_params)
+            param_num += len(base_query_params)
+        
+        # Build pathfinder filter (uses pks alias for player_kill_stats)
+        pathfinder_where = ""
+        if pathfinder_ids:
+            pathfinder_where, pf_params, param_num = build_pathfinder_filter(
+                "pks", param_num, pathfinder_ids, use_and=bool(time_where)
+            )
+            query_params.extend(pf_params)
+        
+        # Build quality match filters
+        quality_filters = [
+            f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
+            "pks.match_id IN (SELECT match_id FROM qualified_matches)"
+        ]
+        
+        # Combine WHERE clauses
+        kill_stats_where = build_where_clause(
+            time_where, pathfinder_where,
+            base_filter=" AND ".join(quality_filters)
         )
-        params.extend(lateral_params)
+        
+        # Build LATERAL join pathfinder filter (uses pms alias for player_match_stats)
+        lateral_where = ""
+        if pathfinder_ids:
+            lateral_where, lateral_params, param_num = build_pathfinder_filter(
+                "pms", param_num, pathfinder_ids, use_and=True
+            )
+            query_params.extend(lateral_params)
+        
+        # Build LATERAL JOIN for player name lookup
+        lateral_join = build_lateral_name_lookup("tp.player_id", lateral_where)
         
         query = f"""
             WITH qualified_matches AS (
@@ -443,12 +544,8 @@ async def _get_most_k98_kills(
                     pks.player_id,
                     SUM(pks.{escaped_column}) as total_k98_kills,
                     COUNT(*) as match_count
-                FROM pathfinder_stats.player_kill_stats pks
-                INNER JOIN pathfinder_stats.match_history mh ON pks.match_id = mh.match_id
-                WHERE mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}
-                    AND pks.match_id IN (SELECT match_id FROM qualified_matches)
-                    {time_filter}
-                    {pf_filter}
+                {from_clause}
+                {kill_stats_where}
                 GROUP BY pks.player_id
                 HAVING COUNT(*) >= {MIN_MATCHES_FOR_AGGREGATE}
                     AND SUM(pks.{escaped_column}) > 0
@@ -465,52 +562,75 @@ async def _get_most_k98_kills(
                 tp.match_count,
                 COALESCE(rn.player_name, tp.player_id) as player_name
             FROM top_players tp
-            LEFT JOIN LATERAL (
-                SELECT pms.player_name
-                FROM pathfinder_stats.player_match_stats pms
-                INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-                WHERE pms.player_id = tp.player_id
-                    {lateral_pf_filter}
-                ORDER BY mh.start_time DESC
-                LIMIT 1
-            ) rn ON TRUE
+            {lateral_join}
             ORDER BY tp.total_k98_kills DESC
         """
         
-        logger.info(f"SQL Query: {format_sql_query_with_params(query, params)}")
+        logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
         
-        results = await conn.fetch(query, *params)
+        results = await conn.fetch(query, *query_params)
         return [dict(row) for row in results]
 
 
 async def _get_avg_objective_efficiency(
     pool,
-    time_threshold: Optional[datetime],
+    over_last_days: int,
     pathfinder_ids: List[str]
 ) -> List[Dict[str, Any]]:
     """
     Stat #6: Average objective efficiency ((offense_score + defense_score) / time_played).
     Calculated per minute for readability.
     """
+    # Calculate time period filter
+    _, base_query_params, _ = create_time_filter_params(over_last_days)
+    
     async with pool.acquire() as conn:
-        params = []
         param_num = 1
+        query_params = []
         
-        time_filter = ""
-        if time_threshold:
-            time_filter = f"AND mh.start_time >= ${param_num}"
-            params.append(time_threshold)
-            param_num += 1
-        
-        pf_filter, pf_params, param_num = build_pathfinder_filter(
-            "pms", param_num, pathfinder_ids, use_and=True
+        # Build FROM clause with optional time filter JOIN
+        from_clause, _ = build_from_clause_with_time_filter(
+            "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
         )
-        params.extend(pf_params)
         
-        lateral_pf_filter, lateral_params, _ = build_pathfinder_filter(
-            "pms", param_num, pathfinder_ids, use_and=True
+        # Build time filter WHERE clause
+        time_where = ""
+        if base_query_params:
+            time_where = f"WHERE mh.start_time >= ${param_num}"
+            query_params.extend(base_query_params)
+            param_num += len(base_query_params)
+        
+        # Build pathfinder filter
+        pathfinder_where = ""
+        if pathfinder_ids:
+            pathfinder_where, pf_params, param_num = build_pathfinder_filter(
+                "pms", param_num, pathfinder_ids, use_and=bool(time_where)
+            )
+            query_params.extend(pf_params)
+        
+        # Build quality match filters
+        quality_filters = [
+            f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
+            "pms.match_id IN (SELECT match_id FROM qualified_matches)",
+            f"pms.time_played >= {MIN_MATCH_DURATION_SECONDS}"
+        ]
+        
+        # Combine WHERE clauses
+        player_stats_where = build_where_clause(
+            time_where, pathfinder_where,
+            base_filter=" AND ".join(quality_filters)
         )
-        params.extend(lateral_params)
+        
+        # Build LATERAL join pathfinder filter
+        lateral_where = ""
+        if pathfinder_ids:
+            lateral_where, lateral_params, param_num = build_pathfinder_filter(
+                "pms", param_num, pathfinder_ids, use_and=True
+            )
+            query_params.extend(lateral_params)
+        
+        # Build LATERAL JOIN for player name lookup
+        lateral_join = build_lateral_name_lookup("tp.player_id", lateral_where)
         
         # Calculate efficiency per minute: (offense + defense) / (time_played / 60)
         query = f"""
@@ -527,13 +647,8 @@ async def _get_avg_objective_efficiency(
                         END
                     ) as avg_obj_efficiency,
                     COUNT(*) as match_count
-                FROM pathfinder_stats.player_match_stats pms
-                INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-                WHERE mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}
-                    AND pms.match_id IN (SELECT match_id FROM qualified_matches)
-                    AND pms.time_played >= {MIN_MATCH_DURATION_SECONDS}
-                    {time_filter}
-                    {pf_filter}
+                {from_clause}
+                {player_stats_where}
                 GROUP BY pms.player_id
                 HAVING COUNT(*) >= 3
             ),
@@ -549,21 +664,13 @@ async def _get_avg_objective_efficiency(
                 tp.match_count,
                 COALESCE(rn.player_name, tp.player_id) as player_name
             FROM top_players tp
-            LEFT JOIN LATERAL (
-                SELECT pms.player_name
-                FROM pathfinder_stats.player_match_stats pms
-                INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-                WHERE pms.player_id = tp.player_id
-                    {lateral_pf_filter}
-                ORDER BY mh.start_time DESC
-                LIMIT 1
-            ) rn ON TRUE
+            {lateral_join}
             ORDER BY tp.avg_obj_efficiency DESC
         """
         
-        logger.info(f"SQL Query: {format_sql_query_with_params(query, params)}")
+        logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
         
-        results = await conn.fetch(query, *params)
+        results = await conn.fetch(query, *query_params)
         return [dict(row) for row in results]
 
 
@@ -580,16 +687,15 @@ async def fetch_all_leaderboard_stats(
         Dictionary with stat category keys and result lists
     """
     pool = await get_readonly_db_pool()
-    time_threshold = _get_time_threshold(days)
     pathfinder_ids = list(get_pathfinder_player_ids())
     
     stats = {
-        "infantry_kills": await _get_most_infantry_kills(pool, time_threshold, pathfinder_ids),
-        "avg_kd": await _get_average_kd(pool, time_threshold, pathfinder_ids),
-        "single_match_kills": await _get_most_kills_single_match(pool, time_threshold, pathfinder_ids),
-        "single_match_kd": await _get_best_kd_single_match(pool, time_threshold, pathfinder_ids),
-        "k98_kills": await _get_most_k98_kills(pool, time_threshold, pathfinder_ids),
-        "obj_efficiency": await _get_avg_objective_efficiency(pool, time_threshold, pathfinder_ids),
+        "infantry_kills": await _get_most_infantry_kills(pool, days, pathfinder_ids),
+        "avg_kd": await _get_average_kd(pool, days, pathfinder_ids),
+        "single_match_kills": await _get_most_kills_single_match(pool, days, pathfinder_ids),
+        "single_match_kd": await _get_best_kd_single_match(pool, days, pathfinder_ids),
+        "k98_kills": await _get_most_k98_kills(pool, days, pathfinder_ids),
+        "obj_efficiency": await _get_avg_objective_efficiency(pool, days, pathfinder_ids),
     }
     
     return stats
