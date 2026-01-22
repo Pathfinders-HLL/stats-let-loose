@@ -13,6 +13,7 @@ from apps.discord_stats_bot.commands.leaderboard import setup_leaderboard_comman
 from apps.discord_stats_bot.commands.management import setup_profile_command
 from apps.discord_stats_bot.commands.player import setup_player_command
 from apps.discord_stats_bot.common.player_id_cache import initialize_cache
+from apps.discord_stats_bot.common.format_preference_cache import initialize_format_cache
 from apps.discord_stats_bot.common.shared import (
     log_command_data,
     log_command_completion,
@@ -70,8 +71,9 @@ async def on_ready():
     # Wait a moment to ensure all guilds are loaded
     await bot.wait_until_ready()
     
-    # Initialize player ID cache
+    # Initialize caches
     await initialize_cache()
+    await initialize_format_cache()
 
     # Sync commands
     dev_guild_id = bot_config.dev_guild_id

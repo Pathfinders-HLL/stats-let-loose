@@ -17,7 +17,7 @@ from apps.discord_stats_bot.common.shared import (
     format_sql_query_with_params
 )
 from apps.discord_stats_bot.common.leaderboard_pagination import (
-    PaginatedLeaderboardView,
+    send_paginated_leaderboard,
     TOP_PLAYERS_LIMIT,
 )
 
@@ -142,8 +142,9 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
         filter_text = " (Pathfinders Only)" if only_pathfinders else ""
         title = f"Top Players - Most 100+ Kill Games{filter_text}"
         
-        # Create paginated view (no timeframe selector since this is all-time)
-        view = PaginatedLeaderboardView(
+        # Send paginated leaderboard using user's format preference
+        await send_paginated_leaderboard(
+            interaction=interaction,
             results=results,
             title_template=title,
             value_key="game_count",
@@ -154,7 +155,4 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
             fetch_data_func=None,  # No timeframe changes for this command
             show_timeframe_in_title=False
         )
-        
-        embed = view.build_embed()
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         log_command_completion("leaderboard 100killgames", command_start_time, success=True, interaction=interaction, kwargs={"only_pathfinders": only_pathfinders})

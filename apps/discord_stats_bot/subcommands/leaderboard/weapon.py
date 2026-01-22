@@ -24,7 +24,7 @@ from apps.discord_stats_bot.common.shared import (
 )
 from apps.discord_stats_bot.common.weapon_autocomplete import weapon_category_autocomplete, get_weapon_mapping
 from apps.discord_stats_bot.common.leaderboard_pagination import (
-    PaginatedLeaderboardView,
+    send_paginated_leaderboard,
     TOP_PLAYERS_LIMIT,
     TIMEFRAME_OPTIONS,
 )
@@ -197,8 +197,9 @@ def register_weapon_subcommand(leaderboard_group: app_commands.Group, channel_ch
         filter_text = " (Pathfinders Only)" if only_pathfinders else ""
         title = f"Top Players - {weapon_category}{filter_text}"
         
-        # Create paginated view
-        view = PaginatedLeaderboardView(
+        # Send paginated leaderboard using user's format preference
+        await send_paginated_leaderboard(
+            interaction=interaction,
             results=results,
             title_template=title,
             value_key="total_kills",
@@ -209,7 +210,4 @@ def register_weapon_subcommand(leaderboard_group: app_commands.Group, channel_ch
             fetch_data_func=fetch_data,
             show_timeframe_in_title=True
         )
-        
-        embed = view.build_embed()
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         log_command_completion("leaderboard weapon", command_start_time, success=True, interaction=interaction, kwargs={"weapon_category": weapon_category, "only_pathfinders": only_pathfinders})
