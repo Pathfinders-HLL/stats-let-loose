@@ -17,7 +17,7 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple
 import discord
 from tabulate import tabulate
 
-from apps.discord_stats_bot.common.format_preference_cache import get_format_preference, DEFAULT_FORMAT
+from apps.discord_stats_bot.common.cache import get_format_preference, DEFAULT_FORMAT
 
 logger = logging.getLogger(__name__)
 

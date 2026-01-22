@@ -7,8 +7,8 @@ This module provides centralized access to shared functionality:
 - Command logging
 - Input validation
 - SQL query building
-- Discord message formatting
 - Autocomplete helpers
+- Caching utilities
 """
 
 # Database operations
@@ -23,16 +23,12 @@ from apps.discord_stats_bot.common.player import (
     get_pathfinder_player_ids,
 )
 
-# Player ID caching
-from apps.discord_stats_bot.common.player_id_cache import (
+# Caching (player IDs and format preferences)
+from apps.discord_stats_bot.common.cache import (
     get_player_id,
     set_player_id,
     clear_player_id,
     initialize_cache,
-)
-
-# Format preference caching
-from apps.discord_stats_bot.common.format_preference_cache import (
     get_format_preference,
     set_format_preference,
     clear_format_preference,
@@ -72,7 +68,7 @@ from apps.discord_stats_bot.common.decorators import (
     handle_command_errors,
 )
 
-# Autocomplete functions
+# Autocomplete functions (types, weapons, maps)
 from apps.discord_stats_bot.common.autocomplete import (
     kill_type_autocomplete,
     death_type_autocomplete,
@@ -80,17 +76,9 @@ from apps.discord_stats_bot.common.autocomplete import (
     stat_type_autocomplete,
     aggregate_by_autocomplete,
     order_by_autocomplete,
-)
-
-# Weapon autocomplete
-from apps.discord_stats_bot.common.weapon_autocomplete import (
     weapon_category_autocomplete,
     get_weapon_names,
     get_weapon_mapping,
-)
-
-# Map autocomplete
-from apps.discord_stats_bot.common.map_autocomplete import (
     map_name_autocomplete,
     get_map_names,
     get_map_ids_for_name,
@@ -138,12 +126,11 @@ __all__ = [
     # Player
     'find_player_by_id_or_name',
     'get_pathfinder_player_ids',
-    # Player ID cache
+    # Cache
     'get_player_id',
     'set_player_id',
     'clear_player_id',
     'initialize_cache',
-    # Format preference cache
     'get_format_preference',
     'set_format_preference',
     'clear_format_preference',
