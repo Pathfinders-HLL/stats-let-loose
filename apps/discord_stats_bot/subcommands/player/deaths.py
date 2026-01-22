@@ -101,7 +101,7 @@ def register_deaths_subcommand(player_group: app_commands.Group, channel_check=N
         death_type_config = {
             "all": {
                 "column": "total_deaths",
-                "display_name": "All Deaths"
+                "display_name": "Deaths"
             },
             "infantry": {
                 "column": "infantry_deaths",

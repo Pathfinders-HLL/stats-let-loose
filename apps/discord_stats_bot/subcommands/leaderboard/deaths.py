@@ -50,7 +50,7 @@ AGGREGATE_BY_CHOICES = [
 DEATH_TYPE_CONFIG = {
     "all": {
         "column": "total_deaths",
-        "display_name": "All Deaths"
+        "display_name": "Deaths"
     },
     "infantry": {
         "column": "infantry_deaths",
@@ -296,6 +296,9 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
         # Format value function
         def format_value(value):
             if is_average:
+                # Only show decimals if they're non-zero
+                if abs(value - round(value)) < 0.001:
+                    return f"{int(round(value)):,}"
                 return f"{value:.2f}"
             return f"{int(value):,}"
         

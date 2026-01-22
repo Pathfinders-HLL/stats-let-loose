@@ -283,6 +283,9 @@ def register_kills_subcommand(leaderboard_group: app_commands.Group, channel_che
         # Format value function
         def format_value(value):
             if is_average:
+                # Only show decimals if they're non-zero
+                if abs(value - round(value)) < 0.001:
+                    return f"{int(round(value)):,}"
                 return f"{value:.2f}"
             return f"{int(value):,}"
         

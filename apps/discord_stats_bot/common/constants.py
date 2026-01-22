@@ -6,7 +6,7 @@ Constants and configuration mappings used across multiple subcommands.
 KILL_TYPE_CONFIG = {
     "all": {
         "column": "total_kills",
-        "display_name": "All Kills"
+        "display_name": "Kills"
     },
     "infantry": {
         "column": "infantry_kills",
@@ -26,7 +26,7 @@ KILL_TYPE_CONFIG = {
 DEATH_TYPE_CONFIG = {
     "all": {
         "column": "total_deaths",
-        "display_name": "All Deaths"
+        "display_name": "Deaths"
     },
     "infantry": {
         "column": "infantry_deaths",

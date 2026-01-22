@@ -101,7 +101,7 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
         kill_type_config = {
             "all": {
                 "column": "total_kills",
-                "display_name": "All Kills"
+                "display_name": "Kills"
             },
             "infantry": {
                 "column": "infantry_kills",

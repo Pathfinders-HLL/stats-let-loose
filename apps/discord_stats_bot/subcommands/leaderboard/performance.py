@@ -271,6 +271,12 @@ def register_performance_subcommand(leaderboard_group: app_commands.Group, chann
         
         # Format value function
         def format_value(value):
+            # For streak stats, use the format string as-is (they're always integers)
+            if is_streak_stat:
+                return format_str.format(value)
+            # For non-streak stats (KDR, KPM, DPM), only show decimals if non-zero
+            if abs(value - round(value)) < 0.001:
+                return f"{int(round(value))}"
             return format_str.format(value)
         
         # Build title
