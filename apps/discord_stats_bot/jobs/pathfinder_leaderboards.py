@@ -651,6 +651,7 @@ class TimeframeSelect(discord.ui.Select):
             ),
         ]
         super().__init__(
+            custom_id="pathfinder_leaderboard_timeframe",
             placeholder="Select a timeframe...",
             min_values=1,
             max_values=1,
