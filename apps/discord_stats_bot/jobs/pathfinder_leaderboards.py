@@ -952,65 +952,28 @@ class PaginatedLeaderboardView(discord.ui.View):
 
 
 class LeaderboardView(discord.ui.View):
-    """Simple persistent view with just timeframe selector for the main post."""
+    """Simple persistent view with a Browse Details button for the main post."""
     
     def __init__(self):
         # Set timeout to None for persistent view
         super().__init__(timeout=None)
-        self.add_item(MainTimeframeSelect())
-
-
-class MainTimeframeSelect(discord.ui.Select):
-    """Dropdown select for the main leaderboard post that opens paginated view."""
     
-    def __init__(self):
-        options = [
-            discord.SelectOption(
-                label="Last 24 Hours",
-                value="1d",
-                description="View stats from the past day",
-                emoji="📅"
-            ),
-            discord.SelectOption(
-                label="Last 7 Days",
-                value="7d",
-                description="View stats from the past week",
-                emoji="📆",
-                default=True
-            ),
-            discord.SelectOption(
-                label="Last 30 Days",
-                value="30d",
-                description="View stats from the past month",
-                emoji="🗓️"
-            ),
-            discord.SelectOption(
-                label="All Time",
-                value="all",
-                description="View all-time stats",
-                emoji="♾️"
-            ),
-        ]
-        super().__init__(
-            custom_id="pathfinder_main_timeframe",
-            placeholder="Select a timeframe to explore...",
-            min_values=1,
-            max_values=1,
-            options=options
-        )
-    
-    async def callback(self, interaction: discord.Interaction):
-        """Handle timeframe selection - open paginated view."""
+    @discord.ui.button(
+        label="Advanced View",
+        emoji="🔍",
+        style=discord.ButtonStyle.primary,
+        custom_id="pathfinder_browse_details"
+    )
+    async def browse_details(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open the paginated leaderboard browser."""
         await interaction.response.defer(ephemeral=True)
         
         try:
-            selected = self.values[0]
-            
-            # Create paginated view starting at first stat, first page
+            # Create paginated view starting at first stat, first page, 7-day timeframe
             view = PaginatedLeaderboardView(
                 current_stat_idx=0,
                 current_page=1,
-                current_timeframe=selected
+                current_timeframe="7d"
             )
             
             embed = view.build_embed()
@@ -1022,7 +985,7 @@ class MainTimeframeSelect(discord.ui.Select):
             )
             
         except Exception as e:
-            logger.error(f"Error in timeframe selection: {e}", exc_info=True)
+            logger.error(f"Error opening browse details: {e}", exc_info=True)
             await interaction.followup.send(
                 "❌ An error occurred while fetching the leaderboards.",
                 ephemeral=True
@@ -1115,7 +1078,7 @@ async def post_pathfinder_leaderboards():
         header_content = (
             "# 🏅 Pathfinder Leaderboards\n"
             f"*Last updated: {discord_time}*\n"
-            "*Use the dropdown below to view different timeframes*"
+            "*Click the button below to view stats over different timeframes*"
         )
         
         # Try to edit the stored message ID first

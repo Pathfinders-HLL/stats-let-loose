@@ -19,7 +19,6 @@ from apps.discord_stats_bot.common.shared import (
     close_db_pool
 )
 from apps.discord_stats_bot.config import get_bot_config
-from apps.discord_stats_bot.jobs.karabiner_stats import setup_karabiner_stats_task
 from apps.discord_stats_bot.jobs.pathfinder_leaderboards import (
     setup_pathfinder_leaderboards_task,
     LeaderboardView,
@@ -120,7 +119,6 @@ async def on_ready():
     bot.add_view(LeaderboardView())
     
     # Start scheduled tasks
-    setup_karabiner_stats_task(bot)
     setup_pathfinder_leaderboards_task(bot)
 
 
