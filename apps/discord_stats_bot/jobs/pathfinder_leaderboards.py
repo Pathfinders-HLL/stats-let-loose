@@ -1,12 +1,17 @@
 """
 Scheduled task to post comprehensive Pathfinder leaderboard statistics.
 
-Posts top 10 players for multiple stat categories every 30 minutes,
-with an interactive dropdown to view different timeframes.
+Posts top 50 players for multiple stat categories every 30 minutes,
+with interactive dropdowns to view different timeframes and stats,
+plus pagination buttons for navigating through player rankings.
 """
 
+import asyncio
+import json
 import logging
+import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
 import discord
@@ -25,10 +30,21 @@ logger = logging.getLogger(__name__)
 
 _bot_instance: Optional[discord.Client] = None
 
+# Persistent storage for leaderboard message ID
+CACHE_DIR = Path(os.getenv("DISCORD_BOT_CACHE_DIR", "/app/data/cache"))
+LEADERBOARD_STATE_FILE = CACHE_DIR / "leaderboard_state.json"
+_leaderboard_state_lock = asyncio.Lock()
+_stored_message_id: Optional[int] = None
+_stored_channel_id: Optional[int] = None
+
 # Match quality thresholds
 MIN_MATCH_DURATION_SECONDS = 2700  # 45 minutes
 MIN_PLAYERS_PER_MATCH = 60
 MIN_MATCHES_FOR_AGGREGATE = 5  # Minimum matches for stats #1, #2, #5
+
+# Pagination settings
+TOP_PLAYERS_LIMIT = 50  # Top 50 players per stat
+PLAYERS_PER_PAGE = 10   # 10 players per page = 5 pages
 
 # Timeframe options
 TIMEFRAME_OPTIONS = {
@@ -41,6 +57,59 @@ TIMEFRAME_OPTIONS = {
 # Global cache for pre-computed leaderboard results
 # Structure: {timeframe_key: {"stats": {}, "embeds": [], "timestamp": datetime}}
 _leaderboard_cache: Dict[str, Dict[str, Any]] = {}
+
+
+async def _load_leaderboard_state() -> None:
+    """Load persisted leaderboard message ID from disk."""
+    global _stored_message_id, _stored_channel_id
+    
+    if not LEADERBOARD_STATE_FILE.exists():
+        logger.info(f"Leaderboard state file not found at {LEADERBOARD_STATE_FILE}, starting fresh")
+        return
+    
+    try:
+        with open(LEADERBOARD_STATE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        _stored_message_id = data.get("message_id")
+        _stored_channel_id = data.get("channel_id")
+        
+        if _stored_message_id and _stored_channel_id:
+            logger.info(f"Loaded leaderboard state: message_id={_stored_message_id}, channel_id={_stored_channel_id}")
+        else:
+            logger.info("Leaderboard state file exists but contains no valid IDs")
+            
+    except (json.JSONDecodeError, ValueError, IOError) as e:
+        logger.warning(f"Failed to load leaderboard state from {LEADERBOARD_STATE_FILE}: {e}. Starting fresh.")
+
+
+async def _save_leaderboard_state(message_id: int, channel_id: int) -> None:
+    """Save leaderboard message ID to disk."""
+    global _stored_message_id, _stored_channel_id
+    
+    try:
+        LEADERBOARD_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        
+        data = {
+            "message_id": message_id,
+            "channel_id": channel_id,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        temp_file = LEADERBOARD_STATE_FILE.with_suffix('.json.tmp')
+        with open(temp_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+        
+        temp_file.replace(LEADERBOARD_STATE_FILE)
+        
+        async with _leaderboard_state_lock:
+            _stored_message_id = message_id
+            _stored_channel_id = channel_id
+        
+        logger.info(f"Saved leaderboard state: message_id={message_id}, channel_id={channel_id}")
+        
+    except IOError as e:
+        logger.error(f"Failed to save leaderboard state to {LEADERBOARD_STATE_FILE}: {e}", exc_info=True)
 
 
 def _get_time_threshold(days: int) -> Optional[datetime]:
@@ -113,7 +182,7 @@ async def _get_most_infantry_kills(
                 SELECT player_id, total_infantry_kills, match_count
                 FROM player_stats
                 ORDER BY total_infantry_kills DESC
-                LIMIT 10
+                LIMIT {TOP_PLAYERS_LIMIT}
             )
             SELECT 
                 tp.player_id,
@@ -189,7 +258,7 @@ async def _get_average_kd(
                 SELECT player_id, avg_kd, match_count
                 FROM player_stats
                 ORDER BY avg_kd DESC
-                LIMIT 10
+                LIMIT {TOP_PLAYERS_LIMIT}
             )
             SELECT 
                 tp.player_id,
@@ -261,7 +330,7 @@ async def _get_most_kills_single_match(
             SELECT player_id, player_name, value, map_name
             FROM best_matches
             ORDER BY value DESC
-            LIMIT 10
+            LIMIT {TOP_PLAYERS_LIMIT}
         """
         
         results = await conn.fetch(wrapper_query, *params)
@@ -316,7 +385,7 @@ async def _get_best_kd_single_match(
             SELECT player_id, player_name, ROUND(value::numeric, 2) as value, map_name
             FROM best_matches
             ORDER BY value DESC
-            LIMIT 10
+            LIMIT {TOP_PLAYERS_LIMIT}
         """
         
         results = await conn.fetch(wrapper_query, *params)
@@ -379,7 +448,7 @@ async def _get_most_k98_kills(
                 SELECT player_id, total_k98_kills, match_count
                 FROM player_stats
                 ORDER BY total_k98_kills DESC
-                LIMIT 10
+                LIMIT {TOP_PLAYERS_LIMIT}
             )
             SELECT 
                 tp.player_id,
@@ -461,7 +530,7 @@ async def _get_avg_objective_efficiency(
                 SELECT player_id, avg_obj_efficiency, match_count
                 FROM player_stats
                 ORDER BY avg_obj_efficiency DESC
-                LIMIT 10
+                LIMIT {TOP_PLAYERS_LIMIT}
             )
             SELECT 
                 tp.player_id,
@@ -513,6 +582,125 @@ async def fetch_all_leaderboard_stats(
     return stats
 
 
+# Stat configuration for building embeds
+STAT_CONFIGS = [
+    {
+        "key": "infantry_kills",
+        "title": "🎯 Most Infantry Kills",
+        "value_label": "Kills",
+        "color": discord.Color.from_rgb(16, 74, 0),  # green_dark
+        "value_format": "int",
+        "footer_note": f"Min {MIN_MATCHES_FOR_AGGREGATE} matches required"
+    },
+    {
+        "key": "avg_kd",
+        "title": "📊 Highest Average K/D",
+        "value_label": "Avg K/D",
+        "color": discord.Color.from_rgb(34, 111, 14),  # green_mid
+        "value_format": "float",
+        "footer_note": f"Min {MIN_MATCHES_FOR_AGGREGATE} matches, 45+ min each"
+    },
+    {
+        "key": "single_match_kills",
+        "title": "💥 Most Kills in Single Match",
+        "value_label": "Kills",
+        "color": discord.Color.from_rgb(52, 148, 28),  # green_light
+        "value_format": "int",
+        "footer_note": "Best single match performance"
+    },
+    {
+        "key": "single_match_kd",
+        "title": "⚔️ Best K/D in Single Match",
+        "value_label": "K/D",
+        "color": discord.Color.from_rgb(85, 107, 47),  # olive
+        "value_format": "float",
+        "footer_note": "Best single match K/D ratio"
+    },
+    {
+        "key": "k98_kills",
+        "title": "🔫 Most Karabiner 98k Kills",
+        "value_label": "K98 Kills",
+        "color": discord.Color.from_rgb(34, 139, 34),  # forest
+        "value_format": "int",
+        "footer_note": f"Min {MIN_MATCHES_FOR_AGGREGATE} matches required"
+    },
+    {
+        "key": "obj_efficiency",
+        "title": "🏆 Highest Objective Efficiency",
+        "value_label": "Pts/Min",
+        "color": discord.Color.from_rgb(50, 205, 50),  # lime
+        "value_format": "float",
+        "footer_note": "(Offense + Defense) / Time Played per minute"
+    },
+]
+
+
+def _build_stat_embed_page(
+    results: List[Dict[str, Any]],
+    stat_config: Dict[str, Any],
+    page: int,
+    total_pages: int,
+    timeframe_label: str,
+    updated_timestamp: datetime
+) -> discord.Embed:
+    """Build a single page of a stat category embed with 3 columns."""
+    title = f"{stat_config['title']} ({timeframe_label})"
+    color = stat_config["color"]
+    value_label = stat_config["value_label"]
+    value_format = stat_config["value_format"]
+    
+    embed = discord.Embed(title=title, color=color)
+    
+    if not results:
+        embed.description = "No data available"
+        # Still show footer with page info
+        unix_ts = int(updated_timestamp.timestamp())
+        embed.set_footer(text=f"Page {page}/{total_pages} • {stat_config['title'].split(' ', 1)[1]} • {timeframe_label} • Updated <t:{unix_ts}:R>")
+        return embed
+    
+    # Calculate which results to show for this page
+    start_idx = (page - 1) * PLAYERS_PER_PAGE
+    end_idx = start_idx + PLAYERS_PER_PAGE
+    page_results = results[start_idx:end_idx]
+    
+    ranks = []
+    players = []
+    values = []
+    
+    for rank, row in enumerate(page_results, start_idx + 1):
+        player_name = row.get("player_name") or row.get("player_id", "Unknown")
+        value = row.get("value", 0)
+        
+        ranks.append(f"#{rank}")
+        players.append(player_name[:20])  # Truncate long names
+        
+        if value_format == "int":
+            values.append(f"{int(value):,}")
+        elif value_format == "float":
+            values.append(f"{float(value):.2f}")
+        else:
+            values.append(str(value))
+    
+    embed.add_field(name="Rank", value="\n".join(ranks), inline=True)
+    embed.add_field(name="Player", value="\n".join(players), inline=True)
+    embed.add_field(name=value_label, value="\n".join(values), inline=True)
+    
+    # Build footer: "Page 2/5 • Most Infantry Kills • Last 7 Days • Updated <timestamp>"
+    stat_name = stat_config['title'].split(' ', 1)[1]  # Remove emoji
+    unix_ts = int(updated_timestamp.timestamp())
+    footer_text = f"Page {page}/{total_pages} • {stat_name} • {timeframe_label} • Updated <t:{unix_ts}:R>"
+    embed.set_footer(text=footer_text)
+    
+    return embed
+
+
+def _get_total_pages(results: List[Dict[str, Any]]) -> int:
+    """Calculate total pages for results."""
+    if not results:
+        return 1
+    return max(1, (len(results) + PLAYERS_PER_PAGE - 1) // PLAYERS_PER_PAGE)
+
+
 def _build_stat_embed(
     title: str,
     results: List[Dict[str, Any]],
@@ -521,18 +709,21 @@ def _build_stat_embed(
     value_format: str = "int",
     footer_note: str = ""
 ) -> discord.Embed:
-    """Build a single stat category embed with 3 columns."""
+    """Build a single stat category embed with 3 columns (for first page overview)."""
     embed = discord.Embed(title=title, color=color)
     
     if not results:
         embed.description = "No data available"
         return embed
     
+    # Only show first page (10 players) for overview
+    page_results = results[:PLAYERS_PER_PAGE]
+    
     ranks = []
     players = []
     values = []
     
-    for rank, row in enumerate(results, 1):
+    for rank, row in enumerate(page_results, 1):
         player_name = row.get("player_name") or row.get("player_id", "Unknown")
         value = row.get("value", 0)
         
@@ -560,71 +751,217 @@ def build_leaderboard_embeds(
     stats: Dict[str, List[Dict[str, Any]]],
     timeframe_label: str
 ) -> List[discord.Embed]:
-    """Build all leaderboard embeds from stats data."""
-    # Color palette - using Pathfinder green variants
-    green_dark = discord.Color.from_rgb(16, 74, 0)
-    green_mid = discord.Color.from_rgb(34, 111, 14)
-    green_light = discord.Color.from_rgb(52, 148, 28)
-    olive = discord.Color.from_rgb(85, 107, 47)
-    forest = discord.Color.from_rgb(34, 139, 34)
-    lime = discord.Color.from_rgb(50, 205, 50)
+    """Build all leaderboard embeds from stats data (first page overview for each stat)."""
+    embeds = []
     
-    embeds = [
-        _build_stat_embed(
-            f"🎯 Most Infantry Kills ({timeframe_label})",
-            stats.get("infantry_kills", []),
-            "Kills",
-            green_dark,
-            value_format="int",
-            footer_note=f"Min {MIN_MATCHES_FOR_AGGREGATE} matches required"
-        ),
-        _build_stat_embed(
-            f"📊 Highest Average K/D ({timeframe_label})",
-            stats.get("avg_kd", []),
-            "Avg K/D",
-            green_mid,
-            value_format="float",
-            footer_note=f"Min {MIN_MATCHES_FOR_AGGREGATE} matches, 45+ min each"
-        ),
-        _build_stat_embed(
-            f"💥 Most Kills in Single Match ({timeframe_label})",
-            stats.get("single_match_kills", []),
-            "Kills",
-            green_light,
-            value_format="int",
-            footer_note="Best single match performance"
-        ),
-        _build_stat_embed(
-            f"⚔️ Best K/D in Single Match ({timeframe_label})",
-            stats.get("single_match_kd", []),
-            "K/D",
-            olive,
-            value_format="float",
-            footer_note="Best single match K/D ratio"
-        ),
-        _build_stat_embed(
-            f"🔫 Most Karabiner 98k Kills ({timeframe_label})",
-            stats.get("k98_kills", []),
-            "K98 Kills",
-            forest,
-            value_format="int",
-            footer_note=f"Min {MIN_MATCHES_FOR_AGGREGATE} matches required"
-        ),
-        _build_stat_embed(
-            f"🏆 Highest Objective Efficiency ({timeframe_label})",
-            stats.get("obj_efficiency", []),
-            "Pts/Min",
-            lime,
-            value_format="float",
-            footer_note="(Offense + Defense) / Time Played per minute"
-        ),
-    ]
+    for config in STAT_CONFIGS:
+        embed = _build_stat_embed(
+            f"{config['title']} ({timeframe_label})",
+            stats.get(config["key"], []),
+            config["value_label"],
+            config["color"],
+            value_format=config["value_format"],
+            footer_note=config["footer_note"]
+        )
+        embeds.append(embed)
     
     return embeds
 
 
+class StatSelect(discord.ui.Select):
+    """Dropdown select for choosing which stat to view."""
+    
+    def __init__(self, current_stat_idx: int = 0):
+        options = []
+        for idx, config in enumerate(STAT_CONFIGS):
+            emoji = config["title"].split(" ")[0]
+            stat_name = config["title"].split(" ", 1)[1]
+            options.append(discord.SelectOption(
+                label=stat_name,
+                value=str(idx),
+                emoji=emoji,
+                default=(idx == current_stat_idx)
+            ))
+        
+        super().__init__(
+            custom_id="pathfinder_stat_select",
+            placeholder="Select a stat...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        """Handle stat selection - update the view's stat index."""
+        view: PaginatedLeaderboardView = self.view
+        view.current_stat_idx = int(self.values[0])
+        view.current_page = 1  # Reset to first page when changing stats
+        await view.update_message(interaction)
+
+
 class TimeframeSelect(discord.ui.Select):
     """Dropdown select for choosing leaderboard timeframe."""
+    
+    def __init__(self, current_timeframe: str = "7d"):
+        options = [
+            discord.SelectOption(
+                label="Last 24 Hours",
+                value="1d",
+                description="View stats from the past day",
+                emoji="📅",
+                default=(current_timeframe == "1d")
+            ),
+            discord.SelectOption(
+                label="Last 7 Days",
+                value="7d",
+                description="View stats from the past week",
+                emoji="📆",
+                default=(current_timeframe == "7d")
+            ),
+            discord.SelectOption(
+                label="Last 30 Days",
+                value="30d",
+                description="View stats from the past month",
+                emoji="🗓️",
+                default=(current_timeframe == "30d")
+            ),
+            discord.SelectOption(
+                label="All Time",
+                value="all",
+                description="View all-time stats",
+                emoji="♾️",
+                default=(current_timeframe == "all")
+            ),
+        ]
+        super().__init__(
+            custom_id="pathfinder_leaderboard_timeframe",
+            placeholder="Select a timeframe...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        """Handle timeframe selection - update the view's timeframe."""
+        view: PaginatedLeaderboardView = self.view
+        view.current_timeframe = self.values[0]
+        view.current_page = 1  # Reset to first page when changing timeframe
+        await view.update_message(interaction)
+
+
+class PaginatedLeaderboardView(discord.ui.View):
+    """Persistent view with pagination, stat selection, and timeframe selector."""
+    
+    def __init__(
+        self,
+        current_stat_idx: int = 0,
+        current_page: int = 1,
+        current_timeframe: str = "7d"
+    ):
+        # Set timeout to None for persistent view
+        super().__init__(timeout=None)
+        
+        self.current_stat_idx = current_stat_idx
+        self.current_page = current_page
+        self.current_timeframe = current_timeframe
+        
+        # Add stat selector (row 0)
+        self.add_item(StatSelect(current_stat_idx))
+        
+        # Add timeframe selector (row 1)
+        timeframe_select = TimeframeSelect(current_timeframe)
+        timeframe_select.row = 1
+        self.add_item(timeframe_select)
+    
+    def _get_cached_data(self) -> Tuple[Optional[Dict[str, Any]], datetime]:
+        """Get cached data for current timeframe."""
+        cached = _leaderboard_cache.get(self.current_timeframe)
+        if cached and cached.get("stats"):
+            return cached["stats"], cached["timestamp"]
+        return None, datetime.now(timezone.utc)
+    
+    def _get_current_results(self) -> Tuple[List[Dict[str, Any]], datetime]:
+        """Get results for the current stat from cache."""
+        stats, timestamp = self._get_cached_data()
+        if stats is None:
+            return [], timestamp
+        
+        stat_key = STAT_CONFIGS[self.current_stat_idx]["key"]
+        return stats.get(stat_key, []), timestamp
+    
+    def _get_total_pages(self) -> int:
+        """Get total pages for current stat."""
+        results, _ = self._get_current_results()
+        return _get_total_pages(results)
+    
+    def build_embed(self) -> discord.Embed:
+        """Build the current page embed."""
+        results, timestamp = self._get_current_results()
+        stat_config = STAT_CONFIGS[self.current_stat_idx]
+        timeframe_config = TIMEFRAME_OPTIONS.get(self.current_timeframe, TIMEFRAME_OPTIONS["7d"])
+        total_pages = self._get_total_pages()
+        
+        return _build_stat_embed_page(
+            results=results,
+            stat_config=stat_config,
+            page=self.current_page,
+            total_pages=total_pages,
+            timeframe_label=timeframe_config["label"],
+            updated_timestamp=timestamp
+        )
+    
+    async def update_message(self, interaction: discord.Interaction):
+        """Update the message with current state."""
+        embed = self.build_embed()
+        
+        # Rebuild the view to update button states
+        new_view = PaginatedLeaderboardView(
+            current_stat_idx=self.current_stat_idx,
+            current_page=self.current_page,
+            current_timeframe=self.current_timeframe
+        )
+        
+        await interaction.response.edit_message(embed=embed, view=new_view)
+    
+    @discord.ui.button(emoji="⏮️", style=discord.ButtonStyle.secondary, custom_id="first_page", row=2)
+    async def first_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to first page."""
+        self.current_page = 1
+        await self.update_message(interaction)
+    
+    @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.primary, custom_id="prev_page", row=2)
+    async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to previous page."""
+        if self.current_page > 1:
+            self.current_page -= 1
+        await self.update_message(interaction)
+    
+    @discord.ui.button(emoji="▶️", style=discord.ButtonStyle.primary, custom_id="next_page", row=2)
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to next page."""
+        total_pages = self._get_total_pages()
+        if self.current_page < total_pages:
+            self.current_page += 1
+        await self.update_message(interaction)
+    
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="last_page", row=2)
+    async def last_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to last page."""
+        self.current_page = self._get_total_pages()
+        await self.update_message(interaction)
+
+
+class LeaderboardView(discord.ui.View):
+    """Simple persistent view with just timeframe selector for the main post."""
+    
+    def __init__(self):
+        # Set timeout to None for persistent view
+        super().__init__(timeout=None)
+        self.add_item(MainTimeframeSelect())
+
+
+class MainTimeframeSelect(discord.ui.Select):
+    """Dropdown select for the main leaderboard post that opens paginated view."""
     
     def __init__(self):
         options = [
@@ -655,41 +992,32 @@ class TimeframeSelect(discord.ui.Select):
             ),
         ]
         super().__init__(
-            custom_id="pathfinder_leaderboard_timeframe",
-            placeholder="Select a timeframe...",
+            custom_id="pathfinder_main_timeframe",
+            placeholder="Select a timeframe to explore...",
             min_values=1,
             max_values=1,
             options=options
         )
     
     async def callback(self, interaction: discord.Interaction):
-        """Handle timeframe selection using cached data."""
+        """Handle timeframe selection - open paginated view."""
         await interaction.response.defer(ephemeral=True)
         
         try:
             selected = self.values[0]
-            timeframe_config = TIMEFRAME_OPTIONS.get(selected, TIMEFRAME_OPTIONS["7d"])
-            label = timeframe_config["label"]
             
-            # Check if we have cached data for this timeframe
-            cached_data = _leaderboard_cache.get(selected)
+            # Create paginated view starting at first stat, first page
+            view = PaginatedLeaderboardView(
+                current_stat_idx=0,
+                current_page=1,
+                current_timeframe=selected
+            )
             
-            if cached_data and cached_data.get("embeds"):
-                # Use pre-computed embeds from cache
-                embeds = cached_data["embeds"]
-                cache_age = (datetime.now(timezone.utc) - cached_data["timestamp"]).total_seconds()
-                logger.info(f"Using cached leaderboard data for {selected} (age: {cache_age:.0f}s)")
-            else:
-                # Fallback: compute on-demand if cache is empty (shouldn't happen in normal operation)
-                logger.warning(f"Cache miss for timeframe {selected}, computing on-demand")
-                days = timeframe_config["days"]
-                stats = await fetch_all_leaderboard_stats(days)
-                embeds = build_leaderboard_embeds(stats, label)
+            embed = view.build_embed()
             
-            # Send ephemeral response with all embeds
             await interaction.followup.send(
-                content=f"**Pathfinder Leaderboards - {label}**",
-                embeds=embeds,
+                embed=embed,
+                view=view,
                 ephemeral=True
             )
             
@@ -699,15 +1027,6 @@ class TimeframeSelect(discord.ui.Select):
                 "❌ An error occurred while fetching the leaderboards.",
                 ephemeral=True
             )
-
-
-class LeaderboardView(discord.ui.View):
-    """Persistent view with timeframe selector for leaderboards."""
-    
-    def __init__(self):
-        # Set timeout to None for persistent view
-        super().__init__(timeout=None)
-        self.add_item(TimeframeSelect())
 
 
 @tasks.loop(minutes=20)
@@ -799,13 +1118,41 @@ async def post_pathfinder_leaderboards():
             "*Use the dropdown below to view different timeframes*"
         )
         
-        # Try to find and edit the last bot message
+        # Try to edit the stored message ID first
+        async with _leaderboard_state_lock:
+            stored_msg_id = _stored_message_id
+            stored_chan_id = _stored_channel_id
+        
+        if stored_msg_id and stored_chan_id == stats_channel_id:
+            try:
+                logger.info(f"Attempting to edit stored leaderboard message: {stored_msg_id}")
+                stored_message = await channel.fetch_message(stored_msg_id)
+                
+                if stored_message and stored_message.author == _bot_instance.user:
+                    await stored_message.edit(
+                        content=header_content,
+                        embeds=embeds,
+                        view=view
+                    )
+                    logger.info(f"Successfully edited stored leaderboard message {stored_msg_id}")
+                    return
+                else:
+                    logger.warning(f"Stored message {stored_msg_id} not found or not owned by bot, will create new")
+                    
+            except discord.NotFound:
+                logger.info(f"Stored message {stored_msg_id} not found (may have been deleted), will create new")
+            except discord.Forbidden:
+                logger.warning(f"No permission to edit stored message {stored_msg_id}, will create new")
+            except Exception as e:
+                logger.warning(f"Error editing stored message {stored_msg_id}: {e}, will create new")
+        
+        # Fallback: Try to find and edit the last bot message in channel history
         try:
-            logger.info("Looking for existing leaderboard message to edit...")
+            logger.info("Looking for existing leaderboard message in channel history...")
             last_message = None
             
             # Look through recent messages to find our leaderboard post
-            async for message in channel.history(limit=10):
+            async for message in channel.history(limit=20):
                 if (message.author == _bot_instance.user and 
                     message.content.startswith("# 🏅 Pathfinder Leaderboards")):
                     last_message = message
@@ -818,10 +1165,12 @@ async def post_pathfinder_leaderboards():
                     embeds=embeds,
                     view=view
                 )
-                logger.info(f"Successfully edited leaderboard message {last_message.id}")
+                # Save the found message ID for future edits
+                await _save_leaderboard_state(last_message.id, stats_channel_id)
+                logger.info(f"Successfully edited leaderboard message {last_message.id} and saved state")
                 return
             else:
-                logger.info("No existing leaderboard message found")
+                logger.info("No existing leaderboard message found in channel history")
                 
         except discord.Forbidden as e:
             logger.error(f"Permission error accessing channel history: {e}", exc_info=True)
@@ -835,7 +1184,9 @@ async def post_pathfinder_leaderboards():
             embeds=embeds,
             view=view
         )
-        logger.info(f"Posted new leaderboard message {new_message.id}")
+        # Save the new message ID for future edits
+        await _save_leaderboard_state(new_message.id, stats_channel_id)
+        logger.info(f"Posted new leaderboard message {new_message.id} and saved state")
         
     except Exception as e:
         logger.error(f"Error in post_pathfinder_leaderboards task: {e}", exc_info=True)
@@ -859,6 +1210,8 @@ def setup_pathfinder_leaderboards_task(bot: discord.Client) -> None:
     @post_pathfinder_leaderboards.before_loop
     async def before_leaderboards():
         await bot.wait_until_ready()
+        # Load persisted message ID state
+        await _load_leaderboard_state()
         # Ensure cache is populated before first post
         if not _leaderboard_cache:
             logger.info("Waiting for cache to populate before posting leaderboards...")
