@@ -63,6 +63,16 @@ TIMEFRAME_OPTIONS = {
 # Structure: {timeframe_key: {"stats": {}, "embeds": [], "timestamp": datetime}}
 _leaderboard_cache: Dict[str, Dict[str, Any]] = {}
 
+# Track which SQL queries have been logged to avoid duplicate logging
+_logged_queries: set = set()
+
+
+def _log_sql_query_once(query_name: str, query: str, query_params: List[Any]) -> None:
+    """Log SQL query only once per query name to avoid duplicate logs on message edits."""
+    if query_name not in _logged_queries:
+        logger.info(f"SQL Query [{query_name}]: {format_sql_query_with_params(query, query_params)}")
+        _logged_queries.add(query_name)
+
 
 async def _load_leaderboard_state() -> None:
     """Load persisted leaderboard message ID from disk."""
@@ -216,7 +226,7 @@ async def _get_most_infantry_kills(
             ORDER BY tp.total_infantry_kills DESC
         """
         
-        logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
+        _log_sql_query_once("infantry_kills", query, query_params)
         
         results = await conn.fetch(query, *query_params)
         return [dict(row) for row in results]
@@ -312,7 +322,7 @@ async def _get_average_kd(
             ORDER BY tp.avg_kd DESC
         """
         
-        logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
+        _log_sql_query_once("average_kd", query, query_params)
         
         results = await conn.fetch(query, *query_params)
         return [dict(row) for row in results]
@@ -391,7 +401,7 @@ async def _get_most_kills_single_match(
             LIMIT {TOP_PLAYERS_LIMIT}
         """
         
-        logger.info(f"SQL Query: {format_sql_query_with_params(wrapper_query, query_params)}")
+        _log_sql_query_once("single_match_kills", wrapper_query, query_params)
         
         results = await conn.fetch(wrapper_query, *query_params)
         return [dict(row) for row in results]
@@ -468,7 +478,7 @@ async def _get_best_kd_single_match(
             LIMIT {TOP_PLAYERS_LIMIT}
         """
         
-        logger.info(f"SQL Query: {format_sql_query_with_params(wrapper_query, query_params)}")
+        _log_sql_query_once("single_match_kd", wrapper_query, query_params)
         
         results = await conn.fetch(wrapper_query, *query_params)
         return [dict(row) for row in results]
@@ -567,7 +577,7 @@ async def _get_most_k98_kills(
             ORDER BY tp.total_k98_kills DESC
         """
         
-        logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
+        _log_sql_query_once("k98_kills", query, query_params)
         
         results = await conn.fetch(query, *query_params)
         return [dict(row) for row in results]
