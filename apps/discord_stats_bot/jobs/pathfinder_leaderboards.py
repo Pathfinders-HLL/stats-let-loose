@@ -679,7 +679,7 @@ async def _get_avg_objective_efficiency(
             ORDER BY tp.avg_obj_efficiency DESC
         """
         
-        logger.info(f"SQL Query: {format_sql_query_with_params(query, query_params)}")
+        _log_sql_query_once("obj_efficiency", query, query_params)
         
         results = await conn.fetch(query, *query_params)
         return [dict(row) for row in results]
