@@ -54,14 +54,14 @@ CREATE TABLE IF NOT EXISTS pathfinder_stats.match_history (
 );
 
 -- Create indexes for common query patterns
-CREATE INDEX idx_match_history_map_id ON pathfinder_stats.match_history(map_id);
-CREATE INDEX idx_match_history_map_name ON pathfinder_stats.match_history(map_name);
-CREATE INDEX idx_match_history_game_mode ON pathfinder_stats.match_history(game_mode);
-CREATE INDEX idx_match_history_environment ON pathfinder_stats.match_history(environment);
-CREATE INDEX idx_match_history_start_time ON pathfinder_stats.match_history(start_time);
-CREATE INDEX idx_match_history_end_time ON pathfinder_stats.match_history(end_time);
-CREATE INDEX idx_match_history_winning_team ON pathfinder_stats.match_history(winning_team);
-CREATE INDEX idx_match_history_duration ON pathfinder_stats.match_history(match_duration);
+CREATE INDEX IF NOT EXISTS idx_match_history_map_id ON pathfinder_stats.match_history(map_id);
+CREATE INDEX IF NOT EXISTS idx_match_history_map_name ON pathfinder_stats.match_history(map_name);
+CREATE INDEX IF NOT EXISTS idx_match_history_game_mode ON pathfinder_stats.match_history(game_mode);
+CREATE INDEX IF NOT EXISTS idx_match_history_environment ON pathfinder_stats.match_history(environment);
+CREATE INDEX IF NOT EXISTS idx_match_history_start_time ON pathfinder_stats.match_history(start_time);
+CREATE INDEX IF NOT EXISTS idx_match_history_end_time ON pathfinder_stats.match_history(end_time);
+CREATE INDEX IF NOT EXISTS idx_match_history_winning_team ON pathfinder_stats.match_history(winning_team);
+CREATE INDEX IF NOT EXISTS idx_match_history_duration ON pathfinder_stats.match_history(match_duration);
 
 -- Add table and column comments for documentation
 COMMENT ON TABLE pathfinder_stats.match_history IS 'Main table storing match history data from get_scoreboard_maps API responses';
