@@ -74,7 +74,7 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
         try:
             validate_over_last_days(over_last_days)
         except ValueError as e:
-            await interaction.followup.send(str(e))
+            await interaction.followup.send(str(e), ephemeral=True)
             log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
 
@@ -102,7 +102,8 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
             available_categories = sorted(set(WEAPON_MAPPING.keys()))
             await interaction.followup.send(
                 f"❌ Unknown weapon category: `{weapon_category}` "
-                f"Available categories: {', '.join(sorted(available_categories))}"
+                f"Available categories: {', '.join(sorted(available_categories))}",
+                ephemeral=True
             )
             log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
@@ -131,7 +132,8 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
 
             if not player_id:
                 await interaction.followup.send(
-                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name."
+                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.",
+                    ephemeral=True
                 )
                 log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
@@ -200,7 +202,8 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
             display_name = found_player_name if found_player_name else player
             if total_kills == 0:
                 await interaction.followup.send(
-                    f"Player `{display_name}` has **0** total kills with `{friendly_category_name}`{time_period_text}"
+                    f"Player `{display_name}` has **0** total kills with `{friendly_category_name}`{time_period_text}",
+                    ephemeral=True
                 )
             else:
                 rank_text = f"Rank **#{rank}**"
@@ -208,7 +211,8 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
                     rank_text += f" out of **{total_players}** players"
                 await interaction.followup.send(
                     f"Player `{display_name}` has **{total_kills:,}** total kills "
-                    f"with `{friendly_category_name}`{time_period_text} ({rank_text})"
+                    f"with `{friendly_category_name}`{time_period_text} ({rank_text})",
+                    ephemeral=True
                 )
 
             log_command_completion("player weapon", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)
@@ -232,7 +236,8 @@ async def _handle_all_weapons(
 
         if not player_id:
             await interaction.followup.send(
-                f"❌ Could not find user: `{player}`. Try using a player ID or exact player name."
+                f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.",
+                ephemeral=True
             )
             log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
@@ -345,7 +350,8 @@ async def _handle_all_weapons(
         if not weapon_stats:
             display_name = found_player_name if found_player_name else player
             await interaction.followup.send(
-                f"Player `{display_name}` has **0** kills with any weapon{time_period_text}"
+                f"Player `{display_name}` has **0** kills with any weapon{time_period_text}",
+                ephemeral=True
             )
             return
         
@@ -390,5 +396,5 @@ async def _handle_all_weapons(
             if len(message) <= 2000:
                 break
         
-        await interaction.followup.send(message)
+        await interaction.followup.send(message, ephemeral=True)
         log_command_completion("player weapon", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)

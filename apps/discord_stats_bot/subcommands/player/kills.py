@@ -57,7 +57,7 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
         try:
             validate_over_last_days(over_last_days)
         except ValueError as e:
-            await interaction.followup.send(str(e))
+            await interaction.followup.send(str(e), ephemeral=True)
             log_command_completion("player kills", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
 
@@ -78,7 +78,7 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
                 "kill type", kill_type, KILL_TYPE_VALID_VALUES, KILL_TYPE_DISPLAY_LIST
             )
         except ValueError as e:
-            await interaction.followup.send(str(e))
+            await interaction.followup.send(str(e), ephemeral=True)
             log_command_completion("player kills", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
             
@@ -92,7 +92,8 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
 
             if not player_id:
                 await interaction.followup.send(
-                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name."
+                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.",
+                    ephemeral=True
                 )
                 log_command_completion("player kills", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
@@ -130,7 +131,8 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
             if not results:
                 await interaction.followup.send(
                     f"❌ No matches found for player `{found_player_name or player}` "
-                    f"with {display_name.lower()}{time_period_text}."
+                    f"with {display_name.lower()}{time_period_text}.",
+                    ephemeral=True
                 )
                 log_command_completion("player kills", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
@@ -181,5 +183,5 @@ def register_kills_subcommand(player_group: app_commands.Group, channel_check=No
                 if len(message) <= 2000:
                     break
 
-            await interaction.followup.send(message)
+            await interaction.followup.send(message, ephemeral=True)
             log_command_completion("player kills", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)

@@ -271,7 +271,7 @@ class LeaderboardTimeframeSelect(discord.ui.Select):
             view.current_page = 1  # Reset to first page when changing timeframe
             
             # Fetch new data
-            await interaction.response.defer()
+            await interaction.response.defer(ephemeral=True)
             try:
                 days = TIMEFRAME_OPTIONS[new_timeframe]["days"]
                 new_results = await view.fetch_data_func(days)
@@ -284,7 +284,7 @@ class LeaderboardTimeframeSelect(discord.ui.Select):
                     ephemeral=True
                 )
         else:
-            await interaction.response.defer()
+            await interaction.response.defer(ephemeral=True)
 
 
 class PaginatedLeaderboardView(discord.ui.View):

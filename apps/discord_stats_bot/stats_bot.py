@@ -142,7 +142,7 @@ async def ping(interaction: discord.Interaction):
             return
         
         latency = round(bot.latency * 1000)
-        await interaction.response.send_message(f"Pong! Latency: {latency}ms")
+        await interaction.response.send_message(f"Pong! Latency: {latency}ms", ephemeral=True)
         log_command_completion("ping", start_time, success=True, interaction=interaction, kwargs={})
     except Exception as e:
         logger.error(f"Error in ping command: {e}", exc_info=True)

@@ -24,7 +24,7 @@ async def handle_command_errors(
     command_name: str,
     start_time: float,
     error: Exception,
-    use_ephemeral: bool = False,
+    use_ephemeral: bool = True,
     kwargs: Optional[dict] = None
 ) -> None:
     """Handle errors with appropriate logging and user-facing messages."""
@@ -85,7 +85,7 @@ def command_wrapper(
                     )
                     return
 
-                await interaction.response.defer()
+                await interaction.response.defer(ephemeral=True)
                 
                 result = await func(interaction, *args, **kwargs)
                 return result

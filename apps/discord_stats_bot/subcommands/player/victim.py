@@ -46,7 +46,7 @@ def register_victim_subcommand(player_group: app_commands.Group, channel_check=N
         try:
             validate_over_last_days(over_last_days)
         except ValueError as e:
-            await interaction.followup.send(str(e))
+            await interaction.followup.send(str(e), ephemeral=True)
             log_command_completion("player victim", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
 
@@ -68,7 +68,8 @@ def register_victim_subcommand(player_group: app_commands.Group, channel_check=N
 
             if not player_id:
                 await interaction.followup.send(
-                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name."
+                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.",
+                    ephemeral=True
                 )
                 log_command_completion("player victim", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
@@ -101,7 +102,8 @@ def register_victim_subcommand(player_group: app_commands.Group, channel_check=N
 
             if not results:
                 await interaction.followup.send(
-                    f"❌ No victim data found for player `{found_player_name or player}`{time_period_text}."
+                    f"❌ No victim data found for player `{found_player_name or player}`{time_period_text}.",
+                    ephemeral=True
                 )
                 log_command_completion("player victim", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
@@ -148,5 +150,5 @@ def register_victim_subcommand(player_group: app_commands.Group, channel_check=N
                 if len(message) <= 2000:
                     break
 
-            await interaction.followup.send(message)
+            await interaction.followup.send(message, ephemeral=True)
             log_command_completion("player victim", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)

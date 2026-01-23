@@ -70,7 +70,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
 
         map_name = map_name.strip()
         if not map_name:
-            await interaction.followup.send("❌ Please provide a map name.")
+            await interaction.followup.send("❌ Please provide a map name.", ephemeral=True)
             log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
         
@@ -82,7 +82,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
             suggestion_text = ""
             if suggestions:
                 suggestion_text = f"\n\nDid you mean: {', '.join(suggestions)}?"
-            await interaction.followup.send(f"❌ Unknown map: `{map_name}`.{suggestion_text}")
+            await interaction.followup.send(f"❌ Unknown map: `{map_name}`.{suggestion_text}", ephemeral=True)
             log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
 
@@ -91,7 +91,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                 "order by", order_by, ORDER_BY_VALID_VALUES, ORDER_BY_DISPLAY_LIST
             )
         except ValueError as e:
-            await interaction.followup.send(str(e))
+            await interaction.followup.send(str(e), ephemeral=True)
             log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
 
@@ -105,7 +105,8 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
 
             if not player_id:
                 await interaction.followup.send(
-                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name."
+                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.",
+                    ephemeral=True
                 )
                 log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
@@ -140,7 +141,8 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
 
             if not results:
                 await interaction.followup.send(
-                    f"❌ No matches found for player `{found_player_name or player}` on map `{proper_map_name}`."
+                    f"❌ No matches found for player `{found_player_name or player}` on map `{proper_map_name}`.",
+                    ephemeral=True
                 )
                 log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
@@ -196,5 +198,5 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                 if len(message) <= 2000:
                     break
 
-            await interaction.followup.send(message)
+            await interaction.followup.send(message, ephemeral=True)
             log_command_completion("player maps", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)
