@@ -29,6 +29,7 @@ from apps.discord_stats_bot.common import (
     format_sql_query_with_params,
     get_weapon_mapping,
     build_compact_leaderboard_embed,
+    PATHFINDER_COLOR,
 )
 from apps.discord_stats_bot.config import get_bot_config
 
@@ -721,57 +722,57 @@ STAT_CONFIGS = [
         "compact_title": "🎯 Highest Kills",
         "value_label": "Kills",
         "value_abbrev": "Tot",  # 3-char abbreviation for compact view
-        "color": discord.Color.from_rgb(16, 74, 0),  # green_dark
+        "color": PATHFINDER_COLOR,
         "value_format": "int",
         "footer_note": f"Min {MIN_MATCHES_FOR_AGGREGATE} matches required"
     },
     {
         "key": "avg_kd",
         "title": "📊 Highest Average K/D",
-        "compact_title": "📊 Kills/Minute",
+        "compact_title": "📊 Top Average K/D",
         "value_label": "Avg K/D",
         "value_abbrev": "K/D",
-        "color": discord.Color.from_rgb(34, 111, 14),  # green_mid
+        "color": PATHFINDER_COLOR,
         "value_format": "float",
         "footer_note": f"Min {MIN_MATCHES_FOR_AGGREGATE} matches, 45+ min each"
     },
     {
         "key": "single_match_kills",
         "title": "💥 Most Kills in Single Match",
-        "compact_title": "💥 Best Match Kills",
+        "compact_title": "💥 Most Single Match Kills",
         "value_label": "Kills",
         "value_abbrev": "Kil",
-        "color": discord.Color.from_rgb(52, 148, 28),  # green_light
+        "color": PATHFINDER_COLOR,
         "value_format": "int",
         "footer_note": "Best single match performance"
     },
     {
         "key": "single_match_kd",
         "title": "⚔️ Best K/D in Single Match",
-        "compact_title": "⚔️ Highest KDR",
+        "compact_title": "⚔️ Highest Single Match KDR",
         "value_label": "K/D",
         "value_abbrev": "K/D",
-        "color": discord.Color.from_rgb(85, 107, 47),  # olive
+        "color": PATHFINDER_COLOR,
         "value_format": "float",
         "footer_note": "Best single match K/D ratio"
     },
     {
         "key": "k98_kills",
         "title": "🔫 Most Karabiner 98k Kills",
-        "compact_title": "🔫 K98 Kills",
+        "compact_title": "🔫 Most K98 Kills",
         "value_label": "K98 Kills",
         "value_abbrev": "K98",
-        "color": discord.Color.from_rgb(34, 139, 34),  # forest
+        "color": PATHFINDER_COLOR,
         "value_format": "int",
         "footer_note": "Total kills with Karabiner 98k"
     },
     {
         "key": "obj_efficiency",
         "title": "🏆 Highest Objective Efficiency",
-        "compact_title": "🏆 Obj Efficiency",
+        "compact_title": "🏆 Objective Efficiency",
         "value_label": "Pts/Min",
         "value_abbrev": "Pts",
-        "color": discord.Color.from_rgb(50, 205, 50),  # lime
+        "color": PATHFINDER_COLOR,
         "value_format": "float",
         "footer_note": "(Offense + Defense) / Time Played per minute"
     },

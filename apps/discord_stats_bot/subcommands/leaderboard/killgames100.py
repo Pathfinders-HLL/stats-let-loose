@@ -15,6 +15,7 @@ from apps.discord_stats_bot.common import (
     get_pathfinder_player_ids,
     command_wrapper,
     format_sql_query_with_params,
+    PATHFINDER_COLOR,
 )
 from apps.discord_stats_bot.common.leaderboard_pagination import (
     send_paginated_leaderboard,
@@ -138,7 +139,7 @@ def register_100killgames_subcommand(leaderboard_group: app_commands.Group, chan
             title_template=title,
             value_key="game_count",
             value_label="Games",
-            color=discord.Color.from_rgb(16, 74, 0),
+            color=PATHFINDER_COLOR,
             format_value=format_value,
             current_timeframe="all",
             fetch_data_func=None,

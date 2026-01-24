@@ -2,7 +2,14 @@
 Constants and configuration mappings used across Discord bot commands.
 """
 
+import discord
 from discord import app_commands
+
+# =============================================================================
+# Visual Branding
+# =============================================================================
+
+PATHFINDER_COLOR = discord.Color.from_rgb(16, 74, 0)
 
 # =============================================================================
 # Discord Limits

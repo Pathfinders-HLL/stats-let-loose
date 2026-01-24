@@ -117,6 +117,7 @@ from apps.discord_stats_bot.common.constants import (
     ORDER_BY_CHOICES,
     ORDER_BY_VALID_VALUES,
     ORDER_BY_DISPLAY_LIST,
+    PATHFINDER_COLOR,
 )
 
 # Monospace table builder
@@ -209,6 +210,7 @@ __all__ = [
     'ORDER_BY_CHOICES',
     'ORDER_BY_VALID_VALUES',
     'ORDER_BY_DISPLAY_LIST',
+    'PATHFINDER_COLOR',
     # Monospace table builder
     'format_compact_value',
     'format_stat_monospace_table',

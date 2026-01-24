@@ -8,11 +8,10 @@ monospace tables suitable for Discord embed fields.
 from datetime import datetime
 from typing import List, Dict, Any
 
+import re
 import discord
 
-
-# Default number of players to show in compact view
-DEFAULT_COMPACT_VIEW_PLAYERS = 10
+from apps.discord_stats_bot.common.constants import DEFAULT_COMPACT_VIEW_PLAYERS, PATHFINDER_COLOR
 
 
 def format_compact_value(value: Any, value_format: str) -> str:
@@ -44,10 +43,10 @@ def format_stat_monospace_table(
     """
     Format a stat as a monospace table.
     
-    Format per row (28 chars max):
-    - Rank: 3 chars (left-aligned)
+    Format per row (25 chars max):
+    - Rank: 3 chars (right-aligned with dot)
     - Space: 1 char
-    - Player: 20 chars (left-aligned, padded)
+    - Player: 17 chars (left-aligned, padded)
     - Space: 1 char
     - Value: 3 chars (right-aligned)
     
@@ -61,7 +60,7 @@ def format_stat_monospace_table(
         Formatted monospace table string wrapped in code blocks
     """
     # Header row: #   Player               Val
-    header = f"{'#':<3} {'Player':<20} {value_abbrev:>3}"
+    header = f"{'#':>3} {'Player':<17} {value_abbrev:>3}"
     
     if not results:
         return f"```\n{header}\nNo data available\n```"
@@ -72,8 +71,11 @@ def format_stat_monospace_table(
         player_name = row.get("player_name") or row.get("player_id", "Unknown")
         value = row.get("value", 0)
         
-        rank_str = f"{rank:<3}"
-        player_str = player_name[:20].ljust(20)
+        # Trim "PF | " or "PFr | " from player name
+        trimmed_player_name = re.sub(r'^(?:PF|PFr)\s*\|\s*', '', player_name)
+        
+        rank_str = f"{str(rank) + '.':>3}"
+        player_str = trimmed_player_name[:17].ljust(17)
         value_str = format_compact_value(value, value_format)
         
         lines.append(f"{rank_str} {player_str} {value_str}")
@@ -108,7 +110,7 @@ def build_compact_leaderboard_embed(
     """
     embed = discord.Embed(
         title=f"🏅 Pathfinder Leaderboards ({timeframe_label})",
-        color=discord.Color.from_rgb(0, 128, 128)  # Teal color
+        color=PATHFINDER_COLOR
     )
     
     # Process stats in pairs for 2-column layout

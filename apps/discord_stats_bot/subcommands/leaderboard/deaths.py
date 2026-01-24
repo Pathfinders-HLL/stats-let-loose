@@ -29,6 +29,7 @@ from apps.discord_stats_bot.common import (
     DEATH_TYPE_DISPLAY_LIST,
     AGGREGATE_BY_VALID_VALUES,
     AGGREGATE_BY_DISPLAY_LIST,
+    PATHFINDER_COLOR,
 )
 from apps.discord_stats_bot.common.leaderboard_pagination import (
     send_paginated_leaderboard,
@@ -234,7 +235,7 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
             title_template=title,
             value_key=value_column_name,
             value_label=display_name,
-            color=discord.Color.from_rgb(16, 74, 0),
+            color=PATHFINDER_COLOR,
             format_value=format_value,
             current_timeframe=default_timeframe,
             fetch_data_func=fetch_data,
