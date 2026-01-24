@@ -40,6 +40,7 @@ _bot_instance: Optional[discord.Client] = None
 # Persistent storage for leaderboard message ID
 CACHE_DIR = Path(os.getenv("DISCORD_BOT_CACHE_DIR", "/app/data/cache"))
 LEADERBOARD_STATE_FILE = CACHE_DIR / "leaderboard_state.json"
+SQL_LOG_FILE = CACHE_DIR / "sql_queries.log"
 _leaderboard_state_lock = asyncio.Lock()
 _stored_message_id: Optional[int] = None
 _stored_channel_id: Optional[int] = None
@@ -67,13 +68,40 @@ _leaderboard_cache: Dict[str, Dict[str, Any]] = {}
 
 # Track which SQL queries have been logged to avoid duplicate logging
 _logged_queries: set = set()
+# Accumulate SQL queries in memory to write all at once
+_sql_query_logs: List[str] = []
 
 
 def _log_sql_query_once(query_name: str, query: str, query_params: List[Any]) -> None:
     """Log SQL query only once per query name to avoid duplicate logs on message edits."""
     if query_name not in _logged_queries:
-        logger.info(f"SQL Query [{query_name}]: {format_sql_query_with_params(query, query_params)}")
+        formatted_query = format_sql_query_with_params(query, query_params)
+        log_entry = f"SQL Query [{query_name}]: {formatted_query}\n"
+        _sql_query_logs.append(log_entry)
         _logged_queries.add(query_name)
+
+
+def _write_sql_logs_to_file() -> None:
+    """Write accumulated SQL queries to file, overwriting previous contents."""
+    if not _sql_query_logs:
+        return
+    
+    try:
+        # Ensure cache directory exists
+        SQL_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Overwrite file (mode 'w') to prevent file size growth
+        with open(SQL_LOG_FILE, 'w', encoding='utf-8') as f:
+            f.writelines(_sql_query_logs)
+    except Exception as e:
+        logger.warning(f"Failed to write SQL queries to file: {e}", exc_info=True)
+
+
+def _clear_sql_logs() -> None:
+    """Clear accumulated SQL query logs and reset tracking."""
+    global _logged_queries, _sql_query_logs
+    _logged_queries.clear()
+    _sql_query_logs.clear()
 
 
 async def _load_leaderboard_state() -> None:
@@ -1149,6 +1177,10 @@ async def refresh_leaderboard_cache():
     
     try:
         logger.info("Starting leaderboard cache refresh...")
+        
+        # Clear SQL logs at the start of each refresh cycle
+        _clear_sql_logs()
+        
         now_utc = datetime.now(timezone.utc)
         
         # Pre-compute stats for all timeframes
@@ -1173,6 +1205,9 @@ async def refresh_leaderboard_cache():
                 
             except Exception as e:
                 logger.error(f"Error caching leaderboard data for {timeframe_key}: {e}", exc_info=True)
+        
+        # Write accumulated SQL queries to file at the end of refresh cycle
+        _write_sql_logs_to_file()
         
         logger.info(f"Leaderboard cache refresh complete. Cached {len(_leaderboard_cache)} timeframes.")
         
@@ -1213,7 +1248,11 @@ async def post_pathfinder_leaderboards():
         else:
             # Fallback: compute on-demand if cache is empty
             logger.warning("Cache empty, computing 7d leaderboard stats on-demand")
+            # Clear logs before fetching to start fresh for this on-demand fetch
+            _clear_sql_logs()
             stats = await fetch_all_leaderboard_stats(days=7)
+            # Write logs after on-demand fetch
+            _write_sql_logs_to_file()
             cache_timestamp = now_utc
         
         # Build compact embed with 2 stats per row

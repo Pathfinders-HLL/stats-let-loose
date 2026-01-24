@@ -147,6 +147,6 @@ def build_compact_leaderboard_embed(
     
     # Footer with timestamp
     unix_ts = int(updated_timestamp.timestamp())
-    embed.set_footer(text=f"Last Refreshed • <t:{unix_ts}:R>")
+    embed.set_footer(text=f"Use slash commands to view leaderboard and personal stats.")
     
     return embed
