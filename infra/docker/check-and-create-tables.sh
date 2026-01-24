@@ -43,6 +43,12 @@ psql -h "$PGHOST" -p "$PGPORT" -v ON_ERROR_STOP=1 -U "$PGUSER" -d "$PGDATABASE" 
     CREATE SCHEMA IF NOT EXISTS pathfinder_stats;
 EOSQL
 
+# Enable pg_stat_statements extension for query performance tracking
+echo "Enabling pg_stat_statements extension..."
+psql -h "$PGHOST" -p "$PGPORT" -v ON_ERROR_STOP=1 -U "$PGUSER" -d "$PGDATABASE" <<-EOSQL
+    CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+EOSQL
+
 # Check and create tables in order
 SCHEMA="pathfinder_stats"
 
