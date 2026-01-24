@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
 import discord
+from asyncpg import exceptions as asyncpg_exceptions
 from discord.ext import tasks
 
 from apps.discord_stats_bot.common import (
@@ -102,6 +103,16 @@ def _clear_sql_logs() -> None:
     global _logged_queries, _sql_query_logs
     _logged_queries.clear()
     _sql_query_logs.clear()
+
+
+async def _fetch_with_timeout_logging(conn, query_name: str, query: str, query_params: List[Any]):
+    """Execute a query and log it if the statement times out."""
+    try:
+        return await conn.fetch(query, *query_params)
+    except asyncpg_exceptions.QueryCanceledError:
+        formatted_query = format_sql_query_with_params(query, query_params)
+        logger.error(f"SQL query timed out [{query_name}]: {formatted_query}", exc_info=True)
+        raise
 
 
 async def _load_leaderboard_state() -> None:
@@ -243,8 +254,7 @@ async def _get_most_infantry_kills(
         
         # Build quality match filters
         quality_filters = [
-            f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
-            "pms.match_id IN (SELECT match_id FROM qualified_matches)"
+            f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}"
         ]
         
         # Combine WHERE clauses
@@ -277,6 +287,7 @@ async def _get_most_infantry_kills(
                     SUM(pms.infantry_kills) as total_infantry_kills,
                     COUNT(*) as match_count
                 {from_clause}
+                INNER JOIN qualified_matches qm ON pms.match_id = qm.match_id
                 {player_stats_where}
                 GROUP BY pms.player_id
                 HAVING COUNT(*) >= {MIN_MATCHES_FOR_AGGREGATE}
@@ -299,7 +310,7 @@ async def _get_most_infantry_kills(
         
         _log_sql_query_once("infantry_kills", query, query_params)
         
-        results = await conn.fetch(query, *query_params)
+        results = await _fetch_with_timeout_logging(conn, "infantry_kills", query, query_params)
         return [dict(row) for row in results]
 
 
@@ -345,7 +356,6 @@ async def _get_average_kd(
         # Build quality match filters
         quality_filters = [
             f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
-            "pms.match_id IN (SELECT match_id FROM qualified_matches)",
             f"pms.time_played >= {MIN_MATCH_DURATION_SECONDS}"
         ]
         
@@ -379,6 +389,7 @@ async def _get_average_kd(
                     AVG(pms.kill_death_ratio) as avg_kd,
                     COUNT(*) as match_count
                 {from_clause}
+                INNER JOIN qualified_matches qm ON pms.match_id = qm.match_id
                 {player_stats_where}
                 GROUP BY pms.player_id
                 HAVING COUNT(*) >= {MIN_MATCHES_FOR_AGGREGATE}
@@ -401,7 +412,7 @@ async def _get_average_kd(
         
         _log_sql_query_once("average_kd", query, query_params)
         
-        results = await conn.fetch(query, *query_params)
+        results = await _fetch_with_timeout_logging(conn, "average_kd", query, query_params)
         return [dict(row) for row in results]
 
 
@@ -448,7 +459,6 @@ async def _get_most_kills_single_match(
         # Build quality match filters
         quality_filters = [
             f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
-            "pms.match_id IN (SELECT match_id FROM qualified_matches)",
             "pms.artillery_kills <= 5 AND pms.spa_kills <= 5"
         ]
         
@@ -471,6 +481,7 @@ async def _get_most_kills_single_match(
                 pms.total_kills as value,
                 mh.map_name
             {from_clause}
+            INNER JOIN qualified_matches qm ON pms.match_id = qm.match_id
             {player_stats_where}
             ORDER BY pms.player_id, pms.total_kills DESC
         """
@@ -486,7 +497,7 @@ async def _get_most_kills_single_match(
         
         _log_sql_query_once("single_match_kills", wrapper_query, query_params)
         
-        results = await conn.fetch(wrapper_query, *query_params)
+        results = await _fetch_with_timeout_logging(conn, "single_match_kills", wrapper_query, query_params)
         return [dict(row) for row in results]
 
 
@@ -532,7 +543,6 @@ async def _get_best_kd_single_match(
         # Build quality match filters
         quality_filters = [
             f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
-            "pms.match_id IN (SELECT match_id FROM qualified_matches)",
             f"pms.time_played >= {MIN_MATCH_DURATION_SECONDS}"
         ]
         
@@ -555,6 +565,7 @@ async def _get_best_kd_single_match(
                 pms.kill_death_ratio as value,
                 mh.map_name
             {from_clause}
+            INNER JOIN qualified_matches qm ON pms.match_id = qm.match_id
             {player_stats_where}
             ORDER BY pms.player_id, pms.kill_death_ratio DESC
         """
@@ -569,7 +580,7 @@ async def _get_best_kd_single_match(
         
         _log_sql_query_once("single_match_kd", wrapper_query, query_params)
         
-        results = await conn.fetch(wrapper_query, *query_params)
+        results = await _fetch_with_timeout_logging(conn, "single_match_kd", wrapper_query, query_params)
         return [dict(row) for row in results]
 
 
@@ -618,8 +629,7 @@ async def _get_most_k98_kills(
         
         # Build quality match filters
         quality_filters = [
-            f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
-            "pks.match_id IN (SELECT match_id FROM qualified_matches)"
+            f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}"
         ]
         
         # Combine WHERE clauses
@@ -652,6 +662,7 @@ async def _get_most_k98_kills(
                     SUM(pks.{escaped_column}) as total_k98_kills,
                     COUNT(*) as match_count
                 {from_clause}
+                INNER JOIN qualified_matches qm ON pks.match_id = qm.match_id
                 {kill_stats_where}
                 GROUP BY pks.player_id
                 HAVING SUM(pks.{escaped_column}) > 0
@@ -674,7 +685,7 @@ async def _get_most_k98_kills(
         
         _log_sql_query_once("k98_kills", query, query_params)
         
-        results = await conn.fetch(query, *query_params)
+        results = await _fetch_with_timeout_logging(conn, "k98_kills", query, query_params)
         return [dict(row) for row in results]
 
 
@@ -720,7 +731,6 @@ async def _get_avg_objective_efficiency(
         # Build quality match filters
         quality_filters = [
             f"mh.match_duration >= {MIN_MATCH_DURATION_SECONDS}",
-            "pms.match_id IN (SELECT match_id FROM qualified_matches)",
             f"pms.time_played >= {MIN_MATCH_DURATION_SECONDS}"
         ]
         
@@ -760,6 +770,7 @@ async def _get_avg_objective_efficiency(
                     ) as avg_obj_efficiency,
                     COUNT(*) as match_count
                 {from_clause}
+                INNER JOIN qualified_matches qm ON pms.match_id = qm.match_id
                 {player_stats_where}
                 GROUP BY pms.player_id
                 HAVING COUNT(*) >= 3
@@ -782,7 +793,7 @@ async def _get_avg_objective_efficiency(
         
         _log_sql_query_once("obj_efficiency", query, query_params)
         
-        results = await conn.fetch(query, *query_params)
+        results = await _fetch_with_timeout_logging(conn, "obj_efficiency", query, query_params)
         return [dict(row) for row in results]
 
 
@@ -1255,6 +1266,7 @@ async def refresh_leaderboard_cache():
         now_utc = datetime.now(timezone.utc)
         
         # Pre-compute stats for all timeframes
+        cached_timeframes = 0
         for timeframe_key, config in TIMEFRAME_OPTIONS.items():
             try:
                 days = config["days"]
@@ -1273,6 +1285,7 @@ async def refresh_leaderboard_cache():
                 }
                 
                 logger.info(f"Cached leaderboard data for {timeframe_key} ({label})")
+                cached_timeframes += 1
                 
             except Exception as e:
                 logger.error(f"Error caching leaderboard data for {timeframe_key}: {e}", exc_info=True)
@@ -1280,7 +1293,11 @@ async def refresh_leaderboard_cache():
         # Write accumulated SQL queries to file at the end of refresh cycle
         _write_sql_logs_to_file()
         
-        logger.info(f"Leaderboard cache refresh complete. Cached {len(_leaderboard_cache)} timeframes.")
+        not_cached = len(TIMEFRAME_OPTIONS) - cached_timeframes
+        logger.info(
+            f"Leaderboard cache refresh complete. Cached {cached_timeframes}/{len(TIMEFRAME_OPTIONS)} "
+            f"timeframes ({not_cached} not cached)."
+        )
         
     except Exception as e:
         logger.error(f"Error in refresh_leaderboard_cache task: {e}", exc_info=True)
