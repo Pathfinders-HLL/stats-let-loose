@@ -5,13 +5,14 @@ Fetch and paginate through all matches from CRCON's get_scoreboard_maps endpoint
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import math
 import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-import requests
+import aiohttp
 
 from apps.api_stats_ingestion.config import get_api_config
 
@@ -21,16 +22,16 @@ OUTPUT_FILE = DATA_DIR / "all_matches.json"
 DEFAULT_LIMIT = 500
 
 
-def fetch_page(page: int, limit: int) -> Dict[str, Any]:
+async def fetch_page(session: aiohttp.ClientSession, page: int, limit: int) -> Dict[str, Any]:
     api_config = get_api_config()
-    response = requests.get(
+    async with session.get(
         api_config.scoreboard_maps_url, params={"page": page, "limit": limit}, timeout=30
-    )
-    response.raise_for_status()
-    return response.json()
+    ) as response:
+        response.raise_for_status()
+        return await response.json()
 
 
-def main(limit: int = DEFAULT_LIMIT) -> None:
+async def main(limit: int = DEFAULT_LIMIT) -> None:
     """Fetch all matches from the API, paginating through all pages."""
     page = 1
     total_pages = None
@@ -41,30 +42,31 @@ def main(limit: int = DEFAULT_LIMIT) -> None:
     print(f"Fetching matches from {api_config.scoreboard_maps_url}...")
     print(f"Using page size: {limit}")
 
-    while True:
-        payload = fetch_page(page, limit)
-        if first_payload is None:
-            first_payload = payload
+    async with aiohttp.ClientSession() as session:
+        while True:
+            payload = await fetch_page(session, page, limit)
+            if first_payload is None:
+                first_payload = payload
 
-        result = payload.get("result") or {}
-        current_page = result.get("page", page)
-        page_size = result.get("page_size", limit)
-        total = result.get("total")
+            result = payload.get("result") or {}
+            current_page = result.get("page", page)
+            page_size = result.get("page_size", limit)
+            total = result.get("total")
 
-        maps = result.get("maps") or []
-        all_maps.extend(maps)
-        print(f"Fetched page {current_page} with {len(maps)} matches (total so far: {len(all_maps)})")
+            maps = result.get("maps") or []
+            all_maps.extend(maps)
+            print(f"Fetched page {current_page} with {len(maps)} matches (total so far: {len(all_maps)})")
 
-        if total is not None and page_size:
-            total_pages = math.ceil(total / page_size)
-            if total_pages is not None:
-                print(f"  Total pages: {total_pages}, Total matches: {total}")
+            if total is not None and page_size:
+                total_pages = math.ceil(total / page_size)
+                if total_pages is not None:
+                    print(f"  Total pages: {total_pages}, Total matches: {total}")
 
-        # Stop if we've reached the final page we know about, or if no more items.
-        if (total_pages is not None and current_page >= total_pages) or not maps:
-            break
+            # Stop if we've reached the final page we know about, or if no more items.
+            if (total_pages is not None and current_page >= total_pages) or not maps:
+                break
 
-        page = current_page + 1
+            page = current_page + 1
 
     # Build a combined payload similar to a single API response
     combined: Dict[str, Any] = {}
@@ -104,5 +106,4 @@ Note: The script will paginate through all pages automatically and save
     )
 
     args = parser.parse_args()
-    main(limit=args.limit)
-
+    asyncio.run(main(limit=args.limit))

@@ -5,15 +5,16 @@ ETL pipeline orchestrator: fetch match data from CRCON API and load into Postgre
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 
-# Import functions from other modules
+# Import async main functions from other modules
 from apps.api_stats_ingestion.fetch.all_matches import main as fetch_all_matches_main
 from apps.api_stats_ingestion.fetch.match_history import main as fetch_match_history_main
 from apps.api_stats_ingestion.load.db_match_results import main as update_db_main
 
 
-def run_pipeline(
+async def run_pipeline(
     skip_all_matches_fetch: bool,
     skip_existing_fetch: bool,
     skip_duplicates_insert: bool,
@@ -33,7 +34,7 @@ def run_pipeline(
         print("STEP 0: FETCHING ALL MATCHES LIST FROM API")
         print("=" * 70)
         try:
-            fetch_all_matches_main()
+            await fetch_all_matches_main()
             print("\n✓ All matches fetch completed successfully")
         except Exception as e:
             print(f"\n✗ Error during all matches fetch: {e}")
@@ -52,7 +53,7 @@ def run_pipeline(
         print("STEP 1: FETCHING MATCH SCOREBOARDS FROM API")
         print("=" * 70)
         try:
-            fetch_match_history_main(skip_existing=skip_existing_fetch)
+            await fetch_match_history_main(skip_existing=skip_existing_fetch)
             print("\n✓ Fetch step completed successfully")
         except Exception as e:
             print(f"\n✗ Error during fetch step: {e}")
@@ -68,7 +69,7 @@ def run_pipeline(
         print("STEP 2: TRANSFORMING AND INSERTING DATA INTO DATABASE")
         print("=" * 70)
         try:
-            update_db_main(
+            await update_db_main(
                 skip_duplicates=skip_duplicates_insert,
                 update_match_history=update_match_history,
                 update_player_stats=update_player_stats,
@@ -151,7 +152,7 @@ Note: This script coordinates:
     
     # Determine which tables to update (default: both)
     # If both skip flags are set, update both (same behavior as old "both flags = update both")
-    run_pipeline(
+    asyncio.run(run_pipeline(
         skip_all_matches_fetch=args.skip_all_matches_fetch,
         skip_existing_fetch=args.skip_existing_fetch,
         skip_duplicates_insert=not args.no_skip_duplicates,
@@ -159,9 +160,8 @@ Note: This script coordinates:
         update_player_stats=True if (args.skip_match_history and args.skip_player_stats) else not args.skip_player_stats,
         skip_fetch=args.skip_fetch,
         skip_insert=args.skip_insert,
-    )
+    ))
 
 
 if __name__ == "__main__":
     main()
-

@@ -1,7 +1,7 @@
 # Discord Bot service requirements
 
-# Database access
-psycopg2-binary~=2.9.11
+# Async PostgreSQL driver for non-blocking database operations
+asyncpg==0.31
 
 # Environment variable management
 python-dotenv~=1.2
@@ -12,9 +12,6 @@ audioop-lts~=0.2.2
 
 # Caching library for player ID storage
 cachetools~=6.2
-
-# Async PostgreSQL driver for non-blocking database operations
-asyncpg==0.31
 
 # Tabulate library for pretty printing
 tabulate~=0.9

@@ -15,13 +15,14 @@ This script:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import csv
 import gc
+import json
 import sys
 from typing import Any, Dict, List, Optional
 
-import psycopg2
-from psycopg2.extras import execute_batch, Json
+import asyncpg
 
 from apps.api_stats_ingestion.config import get_ingestion_config
 from apps.api_stats_ingestion.transform.match_results import (
@@ -84,28 +85,23 @@ def map_weapon_to_column(weapon_name: str, weapon_schema_map: Dict[str, str]) ->
     return weapon_schema_map.get(weapon_name.lower())
 
 
-def check_existing_match_ids(
-    conn: psycopg2.extensions.connection,
+async def check_existing_match_ids(
+    conn: asyncpg.Connection,
     match_ids: List[int],
 ) -> set[int]:
     """Check which match IDs already exist in the match_history table."""
     if not match_ids:
         return set()
     
-    cursor = conn.cursor()
-    query = """
-        SELECT match_id
-        FROM pathfinder_stats.match_history
-        WHERE match_id = ANY(%s)
-    """
-    cursor.execute(query, (match_ids,))
-    existing = {row[0] for row in cursor.fetchall()}
-    cursor.close()
-    return existing
+    rows = await conn.fetch(
+        "SELECT match_id FROM pathfinder_stats.match_history WHERE match_id = ANY($1)",
+        match_ids
+    )
+    return {row["match_id"] for row in rows}
 
 
-def check_existing_player_match_ids(
-    conn: psycopg2.extensions.connection,
+async def check_existing_player_match_ids(
+    conn: asyncpg.Connection,
     player_match_keys: List[tuple[str, int]],
     batch_size: int = 10000,
 ) -> set[tuple[str, int]]:
@@ -113,27 +109,27 @@ def check_existing_player_match_ids(
     if not player_match_keys:
         return set()
     
-    cursor = conn.cursor()
     existing = set()
     
     for i in range(0, len(player_match_keys), batch_size):
         batch = player_match_keys[i : i + batch_size]
-        values_list = ",".join(["(%s, %s)"] * len(batch))
-        query = f"""
+        # Create a list of tuples for the query
+        rows = await conn.fetch(
+            """
             SELECT player_id, match_id
             FROM pathfinder_stats.player_match_stats
-            WHERE (player_id, match_id) IN (VALUES {values_list})
-        """
-        params = [item for pair in batch for item in pair]
-        cursor.execute(query, params)
-        existing.update({(row[0], row[1]) for row in cursor.fetchall()})
+            WHERE (player_id, match_id) IN (SELECT * FROM unnest($1::text[], $2::int[]))
+            """,
+            [k[0] for k in batch],
+            [k[1] for k in batch]
+        )
+        existing.update({(row["player_id"], row["match_id"]) for row in rows})
     
-    cursor.close()
     return existing
 
 
-def check_existing_player_kill_stats(
-    conn: psycopg2.extensions.connection,
+async def check_existing_player_kill_stats(
+    conn: asyncpg.Connection,
     player_match_keys: List[tuple[str, int]],
     batch_size: int = 10000,
 ) -> set[tuple[str, int]]:
@@ -141,27 +137,26 @@ def check_existing_player_kill_stats(
     if not player_match_keys:
         return set()
     
-    cursor = conn.cursor()
     existing = set()
     
     for i in range(0, len(player_match_keys), batch_size):
         batch = player_match_keys[i : i + batch_size]
-        values_list = ",".join(["(%s, %s)"] * len(batch))
-        query = f"""
+        rows = await conn.fetch(
+            """
             SELECT player_id, match_id
             FROM pathfinder_stats.player_kill_stats
-            WHERE (player_id, match_id) IN (VALUES {values_list})
-        """
-        params = [item for pair in batch for item in pair]
-        cursor.execute(query, params)
-        existing.update({(row[0], row[1]) for row in cursor.fetchall()})
+            WHERE (player_id, match_id) IN (SELECT * FROM unnest($1::text[], $2::int[]))
+            """,
+            [k[0] for k in batch],
+            [k[1] for k in batch]
+        )
+        existing.update({(row["player_id"], row["match_id"]) for row in rows})
     
-    cursor.close()
     return existing
 
 
-def check_existing_player_death_stats(
-    conn: psycopg2.extensions.connection,
+async def check_existing_player_death_stats(
+    conn: asyncpg.Connection,
     player_match_keys: List[tuple[str, int]],
     batch_size: int = 10000,
 ) -> set[tuple[str, int]]:
@@ -169,27 +164,26 @@ def check_existing_player_death_stats(
     if not player_match_keys:
         return set()
     
-    cursor = conn.cursor()
     existing = set()
     
     for i in range(0, len(player_match_keys), batch_size):
         batch = player_match_keys[i : i + batch_size]
-        values_list = ",".join(["(%s, %s)"] * len(batch))
-        query = f"""
+        rows = await conn.fetch(
+            """
             SELECT player_id, match_id
             FROM pathfinder_stats.player_death_stats
-            WHERE (player_id, match_id) IN (VALUES {values_list})
-        """
-        params = [item for pair in batch for item in pair]
-        cursor.execute(query, params)
-        existing.update({(row[0], row[1]) for row in cursor.fetchall()})
+            WHERE (player_id, match_id) IN (SELECT * FROM unnest($1::text[], $2::int[]))
+            """,
+            [k[0] for k in batch],
+            [k[1] for k in batch]
+        )
+        existing.update({(row["player_id"], row["match_id"]) for row in rows})
     
-    cursor.close()
     return existing
 
 
-def check_existing_player_victim_stats(
-    conn: psycopg2.extensions.connection,
+async def check_existing_player_victim_stats(
+    conn: asyncpg.Connection,
     player_match_keys: List[tuple[str, int, str]],
     batch_size: int = 10000,
 ) -> set[tuple[str, int, str]]:
@@ -197,27 +191,29 @@ def check_existing_player_victim_stats(
     if not player_match_keys:
         return set()
     
-    cursor = conn.cursor()
     existing = set()
     
     for i in range(0, len(player_match_keys), batch_size):
         batch = player_match_keys[i : i + batch_size]
-        values_list = ",".join(["(%s, %s, %s)"] * len(batch))
-        query = f"""
+        rows = await conn.fetch(
+            """
             SELECT player_id, match_id, victim_name
             FROM pathfinder_stats.player_victim
-            WHERE (player_id, match_id, victim_name) IN (VALUES {values_list})
-        """
-        params = [item for triplet in batch for item in triplet]
-        cursor.execute(query, params)
-        existing.update({(row[0], row[1], row[2]) for row in cursor.fetchall()})
+            WHERE (player_id, match_id, victim_name) IN (
+                SELECT * FROM unnest($1::text[], $2::int[], $3::text[])
+            )
+            """,
+            [k[0] for k in batch],
+            [k[1] for k in batch],
+            [k[2] for k in batch]
+        )
+        existing.update({(row["player_id"], row["match_id"], row["victim_name"]) for row in rows})
     
-    cursor.close()
     return existing
 
 
-def check_existing_player_nemesis_stats(
-    conn: psycopg2.extensions.connection,
+async def check_existing_player_nemesis_stats(
+    conn: asyncpg.Connection,
     player_match_keys: List[tuple[str, int, str]],
     batch_size: int = 10000,
 ) -> set[tuple[str, int, str]]:
@@ -225,35 +221,35 @@ def check_existing_player_nemesis_stats(
     if not player_match_keys:
         return set()
     
-    cursor = conn.cursor()
     existing = set()
     
     for i in range(0, len(player_match_keys), batch_size):
         batch = player_match_keys[i : i + batch_size]
-        values_list = ",".join(["(%s, %s, %s)"] * len(batch))
-        query = f"""
+        rows = await conn.fetch(
+            """
             SELECT player_id, match_id, nemesis_name
             FROM pathfinder_stats.player_nemesis
-            WHERE (player_id, match_id, nemesis_name) IN (VALUES {values_list})
-        """
-        params = [item for triplet in batch for item in triplet]
-        cursor.execute(query, params)
-        existing.update({(row[0], row[1], row[2]) for row in cursor.fetchall()})
+            WHERE (player_id, match_id, nemesis_name) IN (
+                SELECT * FROM unnest($1::text[], $2::int[], $3::text[])
+            )
+            """,
+            [k[0] for k in batch],
+            [k[1] for k in batch],
+            [k[2] for k in batch]
+        )
+        existing.update({(row["player_id"], row["match_id"], row["nemesis_name"]) for row in rows})
     
-    cursor.close()
     return existing
 
 
-def backfill_weapon_stats_from_db(
-    conn: psycopg2.extensions.connection,
+async def backfill_weapon_stats_from_db(
+    conn: asyncpg.Connection,
     weapon_schema_map: Dict[str, str],
     batch_size: int,
     skip_duplicates: bool = True,
 ) -> tuple[int, int, int, int]:
     """Backfill weapon stats from existing player_match_stats records."""
-    cursor = conn.cursor()
-    
-    query = """
+    rows = await conn.fetch("""
         SELECT 
             pms.player_id,
             pms.match_id,
@@ -277,42 +273,35 @@ def backfill_weapon_stats_from_db(
             )
         )
         ORDER BY pms.match_id, pms.player_id
-    """
-    
-    cursor.execute(query)
-    rows = cursor.fetchall()
+    """)
     
     if not rows:
-        cursor.close()
         return 0, 0, 0, 0
     
     print(f"\nFound {len(rows)} existing player_match_stats records to backfill weapon stats for...")
     
     player_stats = []
     for row in rows:
-        player_id, match_id, player_name, team, raw_info = row
         player_stats.append({
-            "player_id": player_id,
-            "match_id": match_id,
-            "player_name": player_name,
-            "team": team,
-            "raw_info": raw_info
+            "player_id": row["player_id"],
+            "match_id": row["match_id"],
+            "player_name": row["player_name"],
+            "team": row["team"],
+            "raw_info": row["raw_info"]
         })
     
-    cursor.close()
-    
-    kill_inserted, kill_skipped = insert_player_kill_stats(
+    kill_inserted, kill_skipped = await insert_player_kill_stats(
         conn, player_stats, weapon_schema_map, batch_size, skip_duplicates
     )
-    death_inserted, death_skipped = insert_player_death_stats(
+    death_inserted, death_skipped = await insert_player_death_stats(
         conn, player_stats, weapon_schema_map, batch_size, skip_duplicates
     )
     
     return kill_inserted, kill_skipped, death_inserted, death_skipped
 
 
-def insert_player_kill_stats(
-    conn: psycopg2.extensions.connection,
+async def insert_player_kill_stats(
+    conn: asyncpg.Connection,
     player_stats: List[Dict[str, Any]],
     weapon_schema_map: Dict[str, str],
     batch_size: int,
@@ -322,7 +311,6 @@ def insert_player_kill_stats(
     if not player_stats:
         return 0, 0
     
-    cursor = conn.cursor()
     all_columns = set(weapon_schema_map.values())
     processed_records = []
     
@@ -371,7 +359,6 @@ def insert_player_kill_stats(
         processed_records.append(record)
     
     if not processed_records:
-        cursor.close()
         return 0, 0
     
     if skip_duplicates:
@@ -379,7 +366,7 @@ def insert_player_kill_stats(
             (record["player_id"], record["match_id"])
             for record in processed_records
         ]
-        existing_keys = check_existing_player_kill_stats(conn, player_match_keys)
+        existing_keys = await check_existing_player_kill_stats(conn, player_match_keys)
         
         records_to_insert = [
             record for record in processed_records
@@ -389,7 +376,6 @@ def insert_player_kill_stats(
         skipped_count = len(processed_records) - len(records_to_insert)
         
         if not records_to_insert:
-            cursor.close()
             return 0, skipped_count
         
         processed_records = records_to_insert
@@ -398,19 +384,21 @@ def insert_player_kill_stats(
     
     weapon_columns = sorted(all_columns)
     all_columns_list = ["player_id", "match_id", "player_name", "team"] + weapon_columns
+    
+    # Build the INSERT query with ON CONFLICT
     columns_str = ", ".join(all_columns_list)
-    placeholders_str = ", ".join([f"%({col})s" for col in all_columns_list])
+    placeholders = ", ".join([f"${i+1}" for i in range(len(all_columns_list))])
     
     if skip_duplicates:
         insert_query = f"""
             INSERT INTO pathfinder_stats.player_kill_stats ({columns_str})
-            VALUES ({placeholders_str})
+            VALUES ({placeholders})
             ON CONFLICT (player_id, match_id) DO NOTHING
         """
     else:
         insert_query = f"""
             INSERT INTO pathfinder_stats.player_kill_stats ({columns_str})
-            VALUES ({placeholders_str})
+            VALUES ({placeholders})
         """
     
     inserted_count = 0
@@ -422,21 +410,22 @@ def insert_player_kill_stats(
     for i in range(0, len(processed_records), batch_size):
         batch = processed_records[i : i + batch_size]
         try:
-            execute_batch(cursor, insert_query, batch, page_size=batch_size)
-            conn.commit()
-            batch_inserted = cursor.rowcount
-            inserted_count += batch_inserted
-            skipped_count += len(batch) - batch_inserted
-        except psycopg2.Error as e:
-            conn.rollback()
+            # Prepare batch data as list of tuples
+            batch_data = [
+                tuple(record.get(col) for col in all_columns_list)
+                for record in batch
+            ]
+            result = await conn.executemany(insert_query, batch_data)
+            # executemany doesn't return row counts easily, count by batch size
+            inserted_count += len(batch)
+        except asyncpg.PostgresError as e:
             print(f"Error inserting kill stats batch {i//batch_size + 1}: {e}")
     
-    cursor.close()
     return inserted_count, skipped_count
 
 
-def insert_player_death_stats(
-    conn: psycopg2.extensions.connection,
+async def insert_player_death_stats(
+    conn: asyncpg.Connection,
     player_stats: List[Dict[str, Any]],
     weapon_schema_map: Dict[str, str],
     batch_size: int,
@@ -446,7 +435,6 @@ def insert_player_death_stats(
     if not player_stats:
         return 0, 0
     
-    cursor = conn.cursor()
     all_columns = set(weapon_schema_map.values())
     processed_records = []
     
@@ -495,7 +483,6 @@ def insert_player_death_stats(
         processed_records.append(record)
     
     if not processed_records:
-        cursor.close()
         return 0, 0
     
     if skip_duplicates:
@@ -503,7 +490,7 @@ def insert_player_death_stats(
             (record["player_id"], record["match_id"])
             for record in processed_records
         ]
-        existing_keys = check_existing_player_death_stats(conn, player_match_keys)
+        existing_keys = await check_existing_player_death_stats(conn, player_match_keys)
         
         records_to_insert = [
             record for record in processed_records
@@ -513,7 +500,6 @@ def insert_player_death_stats(
         skipped_count = len(processed_records) - len(records_to_insert)
         
         if not records_to_insert:
-            cursor.close()
             return 0, skipped_count
         
         processed_records = records_to_insert
@@ -522,19 +508,20 @@ def insert_player_death_stats(
     
     weapon_columns = sorted(all_columns)
     all_columns_list = ["player_id", "match_id", "player_name", "team"] + weapon_columns
+    
     columns_str = ", ".join(all_columns_list)
-    placeholders_str = ", ".join([f"%({col})s" for col in all_columns_list])
+    placeholders = ", ".join([f"${i+1}" for i in range(len(all_columns_list))])
     
     if skip_duplicates:
         insert_query = f"""
             INSERT INTO pathfinder_stats.player_death_stats ({columns_str})
-            VALUES ({placeholders_str})
+            VALUES ({placeholders})
             ON CONFLICT (player_id, match_id) DO NOTHING
         """
     else:
         insert_query = f"""
             INSERT INTO pathfinder_stats.player_death_stats ({columns_str})
-            VALUES ({placeholders_str})
+            VALUES ({placeholders})
         """
     
     inserted_count = 0
@@ -546,21 +533,20 @@ def insert_player_death_stats(
     for i in range(0, len(processed_records), batch_size):
         batch = processed_records[i : i + batch_size]
         try:
-            execute_batch(cursor, insert_query, batch, page_size=batch_size)
-            conn.commit()
-            batch_inserted = cursor.rowcount
-            inserted_count += batch_inserted
-            skipped_count += len(batch) - batch_inserted
-        except psycopg2.Error as e:
-            conn.rollback()
+            batch_data = [
+                tuple(record.get(col) for col in all_columns_list)
+                for record in batch
+            ]
+            await conn.executemany(insert_query, batch_data)
+            inserted_count += len(batch)
+        except asyncpg.PostgresError as e:
             print(f"Error inserting death stats batch {i//batch_size + 1}: {e}")
     
-    cursor.close()
     return inserted_count, skipped_count
 
 
-def insert_player_victim_stats(
-    conn: psycopg2.extensions.connection,
+async def insert_player_victim_stats(
+    conn: asyncpg.Connection,
     player_stats: List[Dict[str, Any]],
     batch_size: int,
     skip_duplicates: bool = True,
@@ -569,7 +555,6 @@ def insert_player_victim_stats(
     if not player_stats:
         return 0, 0
     
-    cursor = conn.cursor()
     processed_records = []
     
     for stat in player_stats:
@@ -604,7 +589,6 @@ def insert_player_victim_stats(
             })
     
     if not processed_records:
-        cursor.close()
         return 0, 0
     
     if skip_duplicates:
@@ -612,7 +596,7 @@ def insert_player_victim_stats(
             (record["player_id"], record["match_id"], record["victim_name"])
             for record in processed_records
         ]
-        existing_keys = check_existing_player_victim_stats(conn, player_match_keys)
+        existing_keys = await check_existing_player_victim_stats(conn, player_match_keys)
         
         records_to_insert = [
             record for record in processed_records
@@ -622,7 +606,6 @@ def insert_player_victim_stats(
         skipped_count = len(processed_records) - len(records_to_insert)
         
         if not records_to_insert:
-            cursor.close()
             return 0, skipped_count
         
         processed_records = records_to_insert
@@ -631,18 +614,18 @@ def insert_player_victim_stats(
     
     columns = ["player_id", "match_id", "player_name", "team", "victim_name", "kill_count"]
     columns_str = ", ".join(columns)
-    placeholders_str = ", ".join([f"%({col})s" for col in columns])
+    placeholders = ", ".join([f"${i+1}" for i in range(len(columns))])
     
     if skip_duplicates:
         insert_query = f"""
             INSERT INTO pathfinder_stats.player_victim ({columns_str})
-            VALUES ({placeholders_str})
+            VALUES ({placeholders})
             ON CONFLICT (player_id, match_id, victim_name) DO NOTHING
         """
     else:
         insert_query = f"""
             INSERT INTO pathfinder_stats.player_victim ({columns_str})
-            VALUES ({placeholders_str})
+            VALUES ({placeholders})
         """
     
     inserted_count = 0
@@ -654,21 +637,20 @@ def insert_player_victim_stats(
     for i in range(0, len(processed_records), batch_size):
         batch = processed_records[i : i + batch_size]
         try:
-            execute_batch(cursor, insert_query, batch, page_size=batch_size)
-            conn.commit()
-            batch_inserted = cursor.rowcount
-            inserted_count += batch_inserted
-            skipped_count += len(batch) - batch_inserted
-        except psycopg2.Error as e:
-            conn.rollback()
+            batch_data = [
+                tuple(record.get(col) for col in columns)
+                for record in batch
+            ]
+            await conn.executemany(insert_query, batch_data)
+            inserted_count += len(batch)
+        except asyncpg.PostgresError as e:
             print(f"Error inserting victim batch {i//batch_size + 1}: {e}")
     
-    cursor.close()
     return inserted_count, skipped_count
 
 
-def insert_player_nemesis_stats(
-    conn: psycopg2.extensions.connection,
+async def insert_player_nemesis_stats(
+    conn: asyncpg.Connection,
     player_stats: List[Dict[str, Any]],
     batch_size: int,
     skip_duplicates: bool = True,
@@ -677,7 +659,6 @@ def insert_player_nemesis_stats(
     if not player_stats:
         return 0, 0
     
-    cursor = conn.cursor()
     processed_records = []
     
     for stat in player_stats:
@@ -712,7 +693,6 @@ def insert_player_nemesis_stats(
             })
     
     if not processed_records:
-        cursor.close()
         return 0, 0
     
     if skip_duplicates:
@@ -720,7 +700,7 @@ def insert_player_nemesis_stats(
             (record["player_id"], record["match_id"], record["nemesis_name"])
             for record in processed_records
         ]
-        existing_keys = check_existing_player_nemesis_stats(conn, player_match_keys)
+        existing_keys = await check_existing_player_nemesis_stats(conn, player_match_keys)
         
         records_to_insert = [
             record for record in processed_records
@@ -730,7 +710,6 @@ def insert_player_nemesis_stats(
         skipped_count = len(processed_records) - len(records_to_insert)
         
         if not records_to_insert:
-            cursor.close()
             return 0, skipped_count
         
         processed_records = records_to_insert
@@ -739,18 +718,18 @@ def insert_player_nemesis_stats(
     
     columns = ["player_id", "match_id", "player_name", "team", "nemesis_name", "death_count"]
     columns_str = ", ".join(columns)
-    placeholders_str = ", ".join([f"%({col})s" for col in columns])
+    placeholders = ", ".join([f"${i+1}" for i in range(len(columns))])
     
     if skip_duplicates:
         insert_query = f"""
             INSERT INTO pathfinder_stats.player_nemesis ({columns_str})
-            VALUES ({placeholders_str})
+            VALUES ({placeholders})
             ON CONFLICT (player_id, match_id, nemesis_name) DO NOTHING
         """
     else:
         insert_query = f"""
             INSERT INTO pathfinder_stats.player_nemesis ({columns_str})
-            VALUES ({placeholders_str})
+            VALUES ({placeholders})
         """
     
     inserted_count = 0
@@ -762,21 +741,20 @@ def insert_player_nemesis_stats(
     for i in range(0, len(processed_records), batch_size):
         batch = processed_records[i : i + batch_size]
         try:
-            execute_batch(cursor, insert_query, batch, page_size=batch_size)
-            conn.commit()
-            batch_inserted = cursor.rowcount
-            inserted_count += batch_inserted
-            skipped_count += len(batch) - batch_inserted
-        except psycopg2.Error as e:
-            conn.rollback()
+            batch_data = [
+                tuple(record.get(col) for col in columns)
+                for record in batch
+            ]
+            await conn.executemany(insert_query, batch_data)
+            inserted_count += len(batch)
+        except asyncpg.PostgresError as e:
             print(f"Error inserting nemesis batch {i//batch_size + 1}: {e}")
     
-    cursor.close()
     return inserted_count, skipped_count
 
 
-def insert_match_history(
-    conn: psycopg2.extensions.connection,
+async def insert_match_history(
+    conn: asyncpg.Connection,
     matches: List[Dict[str, Any]],
     batch_size: int,
     skip_duplicates: bool = True,
@@ -787,7 +765,7 @@ def insert_match_history(
     
     if skip_duplicates:
         match_ids = [match.get("match_id") for match in matches if match.get("match_id") is not None]
-        existing_match_ids = check_existing_match_ids(conn, match_ids)
+        existing_match_ids = await check_existing_match_ids(conn, match_ids)
         
         matches_to_insert = [
             match for match in matches
@@ -803,34 +781,24 @@ def insert_match_history(
     else:
         skipped_count = 0
     
-    cursor = conn.cursor()
+    columns = [
+        "match_id", "map_id", "map_name", "map_short_name", "game_mode",
+        "environment", "allies_score", "axis_score", "winning_team",
+        "start_time", "end_time", "match_duration"
+    ]
+    columns_str = ", ".join(columns)
+    placeholders = ", ".join([f"${i+1}" for i in range(len(columns))])
     
     if skip_duplicates:
-        insert_query = """
-            INSERT INTO pathfinder_stats.match_history (
-                match_id, map_id, map_name, map_short_name, game_mode,
-                environment, allies_score, axis_score, winning_team,
-                start_time, end_time, match_duration
-            )
-            VALUES (
-                %(match_id)s, %(map_id)s, %(map_name)s, %(map_short_name)s, %(game_mode)s,
-                %(environment)s, %(allies_score)s, %(axis_score)s, %(winning_team)s,
-                %(start_time)s, %(end_time)s, %(match_duration)s
-            )
+        insert_query = f"""
+            INSERT INTO pathfinder_stats.match_history ({columns_str})
+            VALUES ({placeholders})
             ON CONFLICT (match_id) DO NOTHING
         """
     else:
-        insert_query = """
-            INSERT INTO pathfinder_stats.match_history (
-                match_id, map_id, map_name, map_short_name, game_mode,
-                environment, allies_score, axis_score, winning_team,
-                start_time, end_time, match_duration
-            )
-            VALUES (
-                %(match_id)s, %(map_id)s, %(map_name)s, %(map_short_name)s, %(game_mode)s,
-                %(environment)s, %(allies_score)s, %(axis_score)s, %(winning_team)s,
-                %(start_time)s, %(end_time)s, %(match_duration)s
-            )
+        insert_query = f"""
+            INSERT INTO pathfinder_stats.match_history ({columns_str})
+            VALUES ({placeholders})
         """
     
     inserted_count = 0
@@ -842,21 +810,20 @@ def insert_match_history(
     for i in range(0, len(matches), batch_size):
         batch = matches[i : i + batch_size]
         try:
-            execute_batch(cursor, insert_query, batch, page_size=batch_size)
-            conn.commit()
-            batch_inserted = cursor.rowcount
-            inserted_count += batch_inserted
-            skipped_count += len(batch) - batch_inserted
-        except psycopg2.Error as e:
-            conn.rollback()
+            batch_data = [
+                tuple(match.get(col) for col in columns)
+                for match in batch
+            ]
+            await conn.executemany(insert_query, batch_data)
+            inserted_count += len(batch)
+        except asyncpg.PostgresError as e:
             print(f"Error inserting batch {i//batch_size + 1}: {e}")
     
-    cursor.close()
     return inserted_count, skipped_count
 
 
-def insert_player_stats(
-    conn: psycopg2.extensions.connection,
+async def insert_player_stats(
+    conn: asyncpg.Connection,
     player_stats: List[Dict[str, Any]],
     batch_size: int,
     skip_duplicates: bool = True,
@@ -865,15 +832,13 @@ def insert_player_stats(
     if not player_stats:
         return 0, 0
     
-    cursor = conn.cursor()
-    
     if skip_duplicates:
         player_match_keys = [
             (stat.get("player_id"), stat.get("match_id"))
             for stat in player_stats
             if stat.get("player_id") and stat.get("match_id")
         ]
-        existing_keys = check_existing_player_match_ids(conn, player_match_keys)
+        existing_keys = await check_existing_player_match_ids(conn, player_match_keys)
         
         stats_to_process = [
             stat for stat in player_stats
@@ -889,127 +854,95 @@ def insert_player_stats(
     else:
         skipped_count = 0
     
+    columns = [
+        "player_id", "match_id", "player_name", "team",
+        "total_kills", "total_deaths", "kill_streak", "death_streak",
+        "kills_per_minute", "deaths_per_minute", "kill_death_ratio", "time_played",
+        "combat_score", "offense_score", "defense_score", "support_score",
+        "shortest_life", "longest_life", "teamkills",
+        "infantry_kills", "grenade_kills", "machine_gun_kills", "sniper_kills",
+        "artillery_kills", "bazooka_kills", "mine_kills", "satchel_kills",
+        "commander_kills", "armor_kills", "pak_kills", "spa_kills",
+        "infantry_deaths", "grenade_deaths", "machine_gun_deaths", "sniper_deaths",
+        "artillery_deaths", "bazooka_deaths", "mine_deaths", "satchel_deaths",
+        "commander_deaths", "armor_deaths", "pak_deaths", "spa_deaths",
+        "raw_info"
+    ]
+    
     processed_stats = []
     for stat in player_stats:
-        processed_stat = {
-            "player_id": stat.get("player_id"),
-            "match_id": stat.get("match_id"),
-            "player_name": stat.get("player_name"),
-            "team": stat.get("team"),
-            "total_kills": stat.get("total_kills"),
-            "total_deaths": stat.get("total_deaths"),
-            "kill_streak": stat.get("kill_streak"),
-            "death_streak": stat.get("death_streak"),
-            "kills_per_minute": stat.get("kills_per_minute"),
-            "deaths_per_minute": stat.get("deaths_per_minute"),
-            "kill_death_ratio": stat.get("kill_death_ratio"),
-            "combat_score": stat.get("combat_score"),
-            "offense_score": stat.get("offense_score"),
-            "defense_score": stat.get("defense_score"),
-            "support_score": stat.get("support_score"),
-            "shortest_life": stat.get("shortest_life"),
-            "longest_life": stat.get("longest_life"),
-            "time_played": stat.get("time_played"),
-            "teamkills": stat.get("teamkills"),
-            "infantry_kills": stat.get("infantry_kills"),
-            "grenade_kills": stat.get("grenade_kills"),
-            "machine_gun_kills": stat.get("machine_gun_kills"),
-            "sniper_kills": stat.get("sniper_kills"),
-            "artillery_kills": stat.get("artillery_kills"),
-            "bazooka_kills": stat.get("bazooka_kills"),
-            "mine_kills": stat.get("mine_kills"),
-            "satchel_kills": stat.get("satchel_kills"),
-            "commander_kills": stat.get("commander_kills"),
-            "armor_kills": stat.get("armor_kills"),
-            "pak_kills": stat.get("pak_kills"),
-            "spa_kills": stat.get("spa_kills"),
-            "infantry_deaths": stat.get("infantry_deaths"),
-            "grenade_deaths": stat.get("grenade_deaths"),
-            "machine_gun_deaths": stat.get("machine_gun_deaths"),
-            "sniper_deaths": stat.get("sniper_deaths"),
-            "artillery_deaths": stat.get("artillery_deaths"),
-            "bazooka_deaths": stat.get("bazooka_deaths"),
-            "mine_deaths": stat.get("mine_deaths"),
-            "satchel_deaths": stat.get("satchel_deaths"),
-            "commander_deaths": stat.get("commander_deaths"),
-            "armor_deaths": stat.get("armor_deaths"),
-            "pak_deaths": stat.get("pak_deaths"),
-            "spa_deaths": stat.get("spa_deaths"),
-        }
-        
-        if "raw_info" in stat and stat["raw_info"] is not None:
-            processed_stat["raw_info"] = Json(stat["raw_info"])
+        # Convert raw_info to JSON string for asyncpg
+        raw_info = stat.get("raw_info")
+        if raw_info is not None:
+            raw_info_json = json.dumps(raw_info)
         else:
-            processed_stat["raw_info"] = None
-            
+            raw_info_json = None
+        
+        processed_stat = (
+            stat.get("player_id"),
+            stat.get("match_id"),
+            stat.get("player_name"),
+            stat.get("team"),
+            stat.get("total_kills"),
+            stat.get("total_deaths"),
+            stat.get("kill_streak"),
+            stat.get("death_streak"),
+            stat.get("kills_per_minute"),
+            stat.get("deaths_per_minute"),
+            stat.get("kill_death_ratio"),
+            stat.get("time_played"),
+            stat.get("combat_score"),
+            stat.get("offense_score"),
+            stat.get("defense_score"),
+            stat.get("support_score"),
+            stat.get("shortest_life"),
+            stat.get("longest_life"),
+            stat.get("teamkills"),
+            stat.get("infantry_kills"),
+            stat.get("grenade_kills"),
+            stat.get("machine_gun_kills"),
+            stat.get("sniper_kills"),
+            stat.get("artillery_kills"),
+            stat.get("bazooka_kills"),
+            stat.get("mine_kills"),
+            stat.get("satchel_kills"),
+            stat.get("commander_kills"),
+            stat.get("armor_kills"),
+            stat.get("pak_kills"),
+            stat.get("spa_kills"),
+            stat.get("infantry_deaths"),
+            stat.get("grenade_deaths"),
+            stat.get("machine_gun_deaths"),
+            stat.get("sniper_deaths"),
+            stat.get("artillery_deaths"),
+            stat.get("bazooka_deaths"),
+            stat.get("mine_deaths"),
+            stat.get("satchel_deaths"),
+            stat.get("commander_deaths"),
+            stat.get("armor_deaths"),
+            stat.get("pak_deaths"),
+            stat.get("spa_deaths"),
+            raw_info_json,
+        )
         processed_stats.append(processed_stat)
     
+    columns_str = ", ".join(columns)
+    placeholders = ", ".join([f"${i+1}" for i in range(len(columns))])
+    
     if skip_duplicates:
-        insert_query = """
-            INSERT INTO pathfinder_stats.player_match_stats (
-                player_id, match_id, player_name, team,
-                total_kills, total_deaths, kill_streak, death_streak,
-                kills_per_minute, deaths_per_minute, kill_death_ratio, time_played,
-                combat_score, offense_score, defense_score, support_score,
-                shortest_life, longest_life, teamkills,
-                infantry_kills, grenade_kills, machine_gun_kills, sniper_kills,
-                artillery_kills, bazooka_kills, mine_kills, satchel_kills,
-                commander_kills, armor_kills, pak_kills, spa_kills,
-                infantry_deaths, grenade_deaths, machine_gun_deaths, sniper_deaths,
-                artillery_deaths, bazooka_deaths, mine_deaths, satchel_deaths,
-                commander_deaths, armor_deaths, pak_deaths, spa_deaths,
-                raw_info
-            )
-            VALUES (
-                %(player_id)s, %(match_id)s, %(player_name)s, %(team)s,
-                %(total_kills)s, %(total_deaths)s, %(kill_streak)s, %(death_streak)s,
-                %(kills_per_minute)s, %(deaths_per_minute)s, %(kill_death_ratio)s, %(time_played)s,
-                %(combat_score)s, %(offense_score)s, %(defense_score)s, %(support_score)s,
-                %(shortest_life)s, %(longest_life)s, %(teamkills)s,
-                %(infantry_kills)s, %(grenade_kills)s, %(machine_gun_kills)s, %(sniper_kills)s,
-                %(artillery_kills)s, %(bazooka_kills)s, %(mine_kills)s, %(satchel_kills)s,
-                %(commander_kills)s, %(armor_kills)s, %(pak_kills)s, %(spa_kills)s,
-                %(infantry_deaths)s, %(grenade_deaths)s, %(machine_gun_deaths)s, %(sniper_deaths)s,
-                %(artillery_deaths)s, %(bazooka_deaths)s, %(mine_deaths)s, %(satchel_deaths)s,
-                %(commander_deaths)s, %(armor_deaths)s, %(pak_deaths)s, %(spa_deaths)s,
-                %(raw_info)s::jsonb
-            )
+        insert_query = f"""
+            INSERT INTO pathfinder_stats.player_match_stats ({columns_str})
+            VALUES ({placeholders})
             ON CONFLICT (player_id, match_id) DO NOTHING
         """
     else:
-        insert_query = """
-            INSERT INTO pathfinder_stats.player_match_stats (
-                player_id, match_id, player_name, team,
-                total_kills, total_deaths, kill_streak, death_streak,
-                kills_per_minute, deaths_per_minute, kill_death_ratio, time_played,
-                combat_score, offense_score, defense_score, support_score,
-                shortest_life, longest_life, teamkills,
-                infantry_kills, grenade_kills, machine_gun_kills, sniper_kills,
-                artillery_kills, bazooka_kills, mine_kills, satchel_kills,
-                commander_kills, armor_kills, pak_kills, spa_kills,
-                infantry_deaths, grenade_deaths, machine_gun_deaths, sniper_deaths,
-                artillery_deaths, bazooka_deaths, mine_deaths, satchel_deaths,
-                commander_deaths, armor_deaths, pak_deaths, spa_deaths,
-                raw_info
-            )
-            VALUES (
-                %(player_id)s, %(match_id)s, %(player_name)s, %(team)s,
-                %(total_kills)s, %(total_deaths)s, %(kill_streak)s, %(death_streak)s,
-                %(kills_per_minute)s, %(deaths_per_minute)s, %(kill_death_ratio)s, %(time_played)s,
-                %(combat_score)s, %(offense_score)s, %(defense_score)s, %(support_score)s,
-                %(shortest_life)s, %(longest_life)s, %(teamkills)s,
-                %(infantry_kills)s, %(grenade_kills)s, %(machine_gun_kills)s, %(sniper_kills)s,
-                %(artillery_kills)s, %(bazooka_kills)s, %(mine_kills)s, %(satchel_kills)s,
-                %(commander_kills)s, %(armor_kills)s, %(pak_kills)s, %(spa_kills)s,
-                %(infantry_deaths)s, %(grenade_deaths)s, %(machine_gun_deaths)s, %(sniper_deaths)s,
-                %(artillery_deaths)s, %(bazooka_deaths)s, %(mine_deaths)s, %(satchel_deaths)s,
-                %(commander_deaths)s, %(armor_deaths)s, %(pak_deaths)s, %(spa_deaths)s,
-                %(raw_info)s::jsonb
-            )
+        insert_query = f"""
+            INSERT INTO pathfinder_stats.player_match_stats ({columns_str})
+            VALUES ({placeholders})
         """
     
     inserted_count = 0
-    total_records = len(player_stats)
+    total_records = len(processed_stats)
     print(f"Inserting {total_records} player statistics records (batch size: {batch_size})...")
     
     del player_stats
@@ -1018,18 +951,12 @@ def insert_player_stats(
     for i in range(0, len(processed_stats), batch_size):
         batch = processed_stats[i : i + batch_size]
         try:
-            execute_batch(cursor, insert_query, batch, page_size=batch_size)
-            conn.commit()
-            batch_inserted = cursor.rowcount
-            inserted_count += batch_inserted
-            skipped_count += len(batch) - batch_inserted
-            del batch
+            await conn.executemany(insert_query, batch)
+            inserted_count += len(batch)
             if (i + batch_size) % (batch_size * 10) == 0:
                 gc.collect()
-        except psycopg2.Error as e:
-            conn.rollback()
+        except asyncpg.PostgresError as e:
             print(f"Error inserting batch {i//batch_size + 1}: {e}")
-            del batch
     
     if len(processed_stats) > 0:
         gc.collect()
@@ -1037,11 +964,10 @@ def insert_player_stats(
     del processed_stats
     gc.collect()
     
-    cursor.close()
     return inserted_count, skipped_count
 
 
-def main(
+async def main(
     skip_duplicates: bool = True,
     update_match_history: bool = True,
     update_player_stats: bool = True,
@@ -1079,7 +1005,7 @@ def main(
         sys.exit(1)
     
     try:
-        conn = get_db_connection(
+        conn = await get_db_connection(
             host=db_config.host,
             port=db_config.port,
             database=db_config.database,
@@ -1104,7 +1030,7 @@ def main(
             for batch in transform_match_history_data_batched(batch_size=transform_batch_size):
                 batch_count += 1
                 if batch:
-                    inserted, skipped = insert_match_history(
+                    inserted, skipped = await insert_match_history(
                         conn, batch, ingestion_config.match_history_batch_size, skip_duplicates=skip_duplicates
                     )
                     total_inserted += inserted
@@ -1151,7 +1077,7 @@ def main(
                 batch_count += 1
                 if batch:
                     if update_weapon_stats and weapon_schema_map:
-                        kill_inserted, kill_skipped = insert_player_kill_stats(
+                        kill_inserted, kill_skipped = await insert_player_kill_stats(
                             conn, batch, weapon_schema_map, 
                             ingestion_config.player_stats_batch_size, 
                             skip_duplicates=skip_duplicates
@@ -1159,7 +1085,7 @@ def main(
                         total_kill_stats_inserted += kill_inserted
                         total_kill_stats_skipped += kill_skipped
                         
-                        death_inserted, death_skipped = insert_player_death_stats(
+                        death_inserted, death_skipped = await insert_player_death_stats(
                             conn, batch, weapon_schema_map,
                             ingestion_config.player_stats_batch_size,
                             skip_duplicates=skip_duplicates
@@ -1168,14 +1094,14 @@ def main(
                         total_death_stats_skipped += death_skipped
                     
                     if update_opponent_stats:
-                        victim_inserted, victim_skipped = insert_player_victim_stats(
+                        victim_inserted, victim_skipped = await insert_player_victim_stats(
                             conn, batch, ingestion_config.player_stats_batch_size,
                             skip_duplicates=skip_duplicates
                         )
                         total_victim_stats_inserted += victim_inserted
                         total_victim_stats_skipped += victim_skipped
                         
-                        nemesis_inserted, nemesis_skipped = insert_player_nemesis_stats(
+                        nemesis_inserted, nemesis_skipped = await insert_player_nemesis_stats(
                             conn, batch, ingestion_config.player_stats_batch_size,
                             skip_duplicates=skip_duplicates
                         )
@@ -1183,7 +1109,7 @@ def main(
                         total_nemesis_stats_skipped += nemesis_skipped
                     
                     if update_player_stats:
-                        inserted, skipped = insert_player_stats(
+                        inserted, skipped = await insert_player_stats(
                             conn, batch, ingestion_config.player_stats_batch_size, skip_duplicates=skip_duplicates
                         )
                         total_inserted += inserted
@@ -1211,7 +1137,7 @@ def main(
                 print("BACKFILLING WEAPON STATS FROM EXISTING PLAYER_MATCH_STATS")
                 print("=" * 60)
                 
-                backfill_kill_inserted, backfill_kill_skipped, backfill_death_inserted, backfill_death_skipped = backfill_weapon_stats_from_db(
+                backfill_kill_inserted, backfill_kill_skipped, backfill_death_inserted, backfill_death_skipped = await backfill_weapon_stats_from_db(
                     conn, weapon_schema_map, ingestion_config.player_stats_batch_size, skip_duplicates=skip_duplicates
                 )
                 
@@ -1246,7 +1172,7 @@ def main(
         return
     
     finally:
-        conn.close()
+        await conn.close()
         print("\nDatabase connection closed")
 
 
@@ -1284,11 +1210,10 @@ if __name__ == "__main__":
     update_weapon_stats = update_player_stats
     update_opponent_stats = update_player_stats
     
-    main(
+    asyncio.run(main(
         skip_duplicates=not args.no_skip_duplicates,
         update_match_history=update_match_history,
         update_player_stats=update_player_stats,
         update_weapon_stats=update_weapon_stats,
         update_opponent_stats=update_opponent_stats,
-    )
-
+    ))

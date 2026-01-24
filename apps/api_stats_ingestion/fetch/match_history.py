@@ -10,12 +10,13 @@ Each output file is named `<id>-<mapid>.json`, where:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
-import requests
+import aiohttp
 
 from apps.api_stats_ingestion.config import get_api_config
 from libs.db.config import get_db_config
@@ -38,14 +39,14 @@ def load_maps() -> List[Dict[str, Any]]:
     return maps
 
 
-def get_existing_match_ids_from_db() -> Set[int]:
+async def get_existing_match_ids_from_db() -> Set[int]:
     """
     Query the database for existing match IDs.
 
     Returns a set of match IDs that have already been inserted into the database.
     """
     db_config = get_db_config()
-    conn = get_db_connection(
+    conn = await get_db_connection(
         host=db_config.host,
         port=db_config.port,
         database=db_config.database,
@@ -53,21 +54,22 @@ def get_existing_match_ids_from_db() -> Set[int]:
         password=db_config.password,
     )
     try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT match_id FROM pathfinder_stats.match_history")
-        existing_ids = {row[0] for row in cursor.fetchall()}
-        cursor.close()
-        return existing_ids
+        rows = await conn.fetch("SELECT match_id FROM pathfinder_stats.match_history")
+        return {row["match_id"] for row in rows}
     finally:
-        conn.close()
+        await conn.close()
 
 
-def fetch_match_scoreboard(match_id: int | str) -> Dict[str, Any]:
+async def fetch_match_scoreboard(
+    session: aiohttp.ClientSession, match_id: int | str
+) -> Dict[str, Any]:
     """Fetch the scoreboard for a single match by id."""
     api_config = get_api_config()
-    resp = requests.get(api_config.map_scoreboard_url, params={"map_id": match_id}, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    async with session.get(
+        api_config.map_scoreboard_url, params={"map_id": match_id}, timeout=30
+    ) as resp:
+        resp.raise_for_status()
+        return await resp.json()
 
 
 def save_match_result(
@@ -80,7 +82,7 @@ def save_match_result(
     outfile.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def main(skip_existing: bool = False) -> None:
+async def main(skip_existing: bool = False) -> None:
     """
     Main function to fetch match scoreboards.
 
@@ -93,7 +95,7 @@ def main(skip_existing: bool = False) -> None:
     # If skip_existing is True, get the set of already-inserted match IDs from DB
     existing_match_ids: Set[int] = set()
     if skip_existing:
-        existing_match_ids = get_existing_match_ids_from_db()
+        existing_match_ids = await get_existing_match_ids_from_db()
         print(f"Found {len(existing_match_ids)} existing matches in database")
         print(f"Skipping already-inserted matches...")
 
@@ -101,32 +103,33 @@ def main(skip_existing: bool = False) -> None:
     fetched_count = 0
     skipped_count = 0
 
-    for entry in maps:
-        match_id = entry.get("id")
-        if match_id is None:
-            continue
+    async with aiohttp.ClientSession() as session:
+        for entry in maps:
+            match_id = entry.get("id")
+            if match_id is None:
+                continue
 
-        # Avoid duplicate calls if the same id appears multiple times.
-        if match_id in seen_ids:
-            continue
-        seen_ids.add(match_id)
+            # Avoid duplicate calls if the same id appears multiple times.
+            if match_id in seen_ids:
+                continue
+            seen_ids.add(match_id)
 
-        map_info = entry.get("map") or {}
-        map_id = map_info.get("id") or "unknown"
-        # Extract pretty name from nested map structure
-        map_map_info = map_info.get("map") or {}
-        pretty_name = map_map_info.get("pretty_name") or map_id
+            map_info = entry.get("map") or {}
+            map_id = map_info.get("id") or "unknown"
+            # Extract pretty name from nested map structure
+            map_map_info = map_info.get("map") or {}
+            pretty_name = map_map_info.get("pretty_name") or map_id
 
-        # Skip matches already in database if skip_existing is enabled
-        if skip_existing and match_id in existing_match_ids:
-            print(f"Skipping (in DB): id={match_id}, map={pretty_name}")
-            skipped_count += 1
-            continue
+            # Skip matches already in database if skip_existing is enabled
+            if skip_existing and match_id in existing_match_ids:
+                print(f"Skipping (in DB): id={match_id}, map={pretty_name}")
+                skipped_count += 1
+                continue
 
-        payload = fetch_match_scoreboard(match_id)
-        save_match_result(match_id, map_id, payload)
-        fetched_count += 1
-        print(f"Saved match result for id={match_id}, mapid={map_id}")
+            payload = await fetch_match_scoreboard(session, match_id)
+            save_match_result(match_id, map_id, payload)
+            fetched_count += 1
+            print(f"Saved match result for id={match_id}, mapid={map_id}")
 
     print(
         f"\nSummary: Fetched {fetched_count} new matches, skipped {skipped_count} existing matches"
@@ -145,5 +148,4 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    main(skip_existing=args.skip_existing)
-
+    asyncio.run(main(skip_existing=args.skip_existing))
