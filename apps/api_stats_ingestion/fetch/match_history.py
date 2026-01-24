@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Set
 import requests
 
 from apps.api_stats_ingestion.config import get_api_config
+from libs.db.config import get_db_config
+from libs.db.database import get_db_connection
 
 ROOT_DIR = Path(__file__).parent
 # Use environment variable for data directory, fallback to script directory
@@ -36,31 +38,28 @@ def load_maps() -> List[Dict[str, Any]]:
     return maps
 
 
-def get_existing_match_ids() -> Set[int]:
+def get_existing_match_ids_from_db() -> Set[int]:
     """
-    Read existing match result files and extract match IDs.
+    Query the database for existing match IDs.
 
-    Returns a set of match IDs that have already been fetched.
-    Match IDs are extracted from filenames in the format `<match_id>-<map_id>.json`.
+    Returns a set of match IDs that have already been inserted into the database.
     """
-    existing_ids: Set[int] = set()
-
-    if not OUTPUT_DIR.exists():
+    db_config = get_db_config()
+    conn = get_db_connection(
+        host=db_config.host,
+        port=db_config.port,
+        database=db_config.database,
+        user=db_config.user,
+        password=db_config.password,
+    )
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT match_id FROM pathfinder_stats.match_history")
+        existing_ids = {row[0] for row in cursor.fetchall()}
+        cursor.close()
         return existing_ids
-
-    for file_path in OUTPUT_DIR.glob("*.json"):
-        # Extract match_id from filename (number before the first hyphen)
-        filename = file_path.stem  # Gets filename without .json extension
-        try:
-            # Split on first hyphen and take the first part as match_id
-            match_id_str = filename.split("-", 1)[0]
-            match_id = int(match_id_str)
-            existing_ids.add(match_id)
-        except (ValueError, IndexError):
-            # Skip files that don't match the expected naming pattern
-            continue
-
-    return existing_ids
+    finally:
+        conn.close()
 
 
 def fetch_match_scoreboard(match_id: int | str) -> Dict[str, Any]:
@@ -86,17 +85,17 @@ def main(skip_existing: bool = False) -> None:
     Main function to fetch match scoreboards.
 
     Args:
-        skip_existing: If True, skip matches that have already been fetched.
+        skip_existing: If True, skip matches that already exist in the database.
                        If False, fetch all matches (normal route).
     """
     maps = load_maps()
 
-    # If skip_existing is True, get the set of already-fetched match IDs
+    # If skip_existing is True, get the set of already-inserted match IDs from DB
     existing_match_ids: Set[int] = set()
     if skip_existing:
-        existing_match_ids = get_existing_match_ids()
-        print(f"Found {len(existing_match_ids)} existing match result files")
-        print(f"Skipping already-fetched matches...")
+        existing_match_ids = get_existing_match_ids_from_db()
+        print(f"Found {len(existing_match_ids)} existing matches in database")
+        print(f"Skipping already-inserted matches...")
 
     seen_ids = set()
     fetched_count = 0
@@ -118,9 +117,9 @@ def main(skip_existing: bool = False) -> None:
         map_map_info = map_info.get("map") or {}
         pretty_name = map_map_info.get("pretty_name") or map_id
 
-        # Skip existing matches if skip_existing is enabled
+        # Skip matches already in database if skip_existing is enabled
         if skip_existing and match_id in existing_match_ids:
-            print(f"Skipping existing match: id={match_id}, map={pretty_name}")
+            print(f"Skipping (in DB): id={match_id}, map={pretty_name}")
             skipped_count += 1
             continue
 
@@ -142,7 +141,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--skip-existing",
         action="store_true",
-        help="Skip matches that have already been fetched and saved to disk",
+        help="Skip matches that already exist in the database",
     )
 
     args = parser.parse_args()

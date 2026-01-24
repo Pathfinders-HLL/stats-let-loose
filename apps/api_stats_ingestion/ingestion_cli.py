@@ -112,7 +112,7 @@ Note: This script coordinates:
         "--skip-existing-fetch",
         action="store_true",
         default=False,
-        help="Skip matches that have already been fetched (for fetch step). Default: False (fetches all matches)."
+        help="Skip matches that already exist in the database (for fetch step). Default: False (fetches all matches)."
     )
     parser.add_argument(
         "--skip-fetch",
