@@ -190,26 +190,30 @@ def _build_quality_match_subquery(time_where_clause: str = "") -> str:
     """
     Build subquery to filter matches with 60+ players.
     
+    Uses the player_count column in match_history for efficient filtering
+    instead of recalculating player counts via GROUP BY.
+    
     Args:
         time_where_clause: Optional WHERE clause for time filtering (e.g., "WHERE mh.start_time >= $1")
     """
+    # Use player_count column for efficient filtering (no expensive GROUP BY)
+    base_filter = f"player_count >= {MIN_PLAYERS_PER_MATCH}"
+    
     if time_where_clause:
-        # Include time filter via match_history join
-        return f"""
-            SELECT pms.match_id 
-            FROM pathfinder_stats.player_match_stats pms
-            INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
-            {time_where_clause}
-            GROUP BY pms.match_id 
-            HAVING COUNT(*) >= {MIN_PLAYERS_PER_MATCH}
-        """
-    else:
-        # No time filter - scan all matches (for all-time queries)
+        # Replace WHERE with AND since we're adding to existing WHERE clause
+        time_condition = time_where_clause.replace("WHERE ", "AND ")
         return f"""
             SELECT match_id 
-            FROM pathfinder_stats.player_match_stats 
-            GROUP BY match_id 
-            HAVING COUNT(*) >= {MIN_PLAYERS_PER_MATCH}
+            FROM pathfinder_stats.match_history mh
+            WHERE {base_filter}
+            {time_condition}
+        """
+    else:
+        # No time filter - just filter by player_count
+        return f"""
+            SELECT match_id 
+            FROM pathfinder_stats.match_history
+            WHERE {base_filter}
         """
 
 

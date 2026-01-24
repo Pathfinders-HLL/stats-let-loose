@@ -822,6 +822,49 @@ async def insert_match_history(
     return inserted_count, skipped_count
 
 
+async def update_match_player_counts(conn: asyncpg.Connection) -> int:
+    """
+    Update player_count column in match_history based on player_match_stats.
+    
+    This should be called after inserting player_match_stats to ensure
+    the player_count column reflects actual participant counts.
+    
+    Returns:
+        Number of match_history records updated
+    """
+    print("Updating match player counts...")
+    
+    # Update player_count for all matches that have NULL or outdated counts
+    result = await conn.execute("""
+        UPDATE pathfinder_stats.match_history mh
+        SET player_count = subq.cnt
+        FROM (
+            SELECT match_id, COUNT(*) as cnt
+            FROM pathfinder_stats.player_match_stats
+            GROUP BY match_id
+        ) subq
+        WHERE mh.match_id = subq.match_id
+          AND (mh.player_count IS NULL OR mh.player_count != subq.cnt)
+    """)
+    
+    # Parse the result to get update count (format: "UPDATE N")
+    updated_count = 0
+    if result:
+        parts = result.split()
+        if len(parts) >= 2 and parts[0] == "UPDATE":
+            try:
+                updated_count = int(parts[1])
+            except ValueError:
+                pass
+    
+    if updated_count > 0:
+        print(f"  Updated player_count for {updated_count} matches")
+    else:
+        print("  All player counts are already up to date")
+    
+    return updated_count
+
+
 async def insert_player_stats(
     conn: asyncpg.Connection,
     player_stats: List[Dict[str, Any]],
@@ -1160,6 +1203,12 @@ async def main(
                 
                 print(f"\nPlayer Nemesis Stats Summary:")
                 print(f"  Inserted: {total_nemesis_stats_inserted}, Skipped: {total_nemesis_stats_skipped}")
+            
+            # Update player_count in match_history after inserting player stats
+            print("\n" + "=" * 60)
+            print("UPDATING MATCH PLAYER COUNTS")
+            print("=" * 60)
+            await update_match_player_counts(conn)
         
         print("\n" + "=" * 60)
         print("DATABASE UPDATE COMPLETE")

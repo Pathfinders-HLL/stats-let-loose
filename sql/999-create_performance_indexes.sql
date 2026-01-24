@@ -29,12 +29,25 @@ ON pathfinder_stats.match_history(match_duration)
 WHERE match_duration >= 2700;
 
 -- Optimize: qualified_matches CTE with time filtering
--- Used in: Pathfinder leaderboards CTE: JOIN match_history ON match_id WHERE start_time >= X GROUP BY match_id
--- This index helps PostgreSQL efficiently filter by start_time and join on match_id
+-- Used in: Pathfinder leaderboards where we filter by player_count >= 60 AND match_duration >= 2700
+-- This index helps PostgreSQL efficiently filter qualified matches
 DROP INDEX IF EXISTS pathfinder_stats.idx_match_history_start_time_match_id_qualified;
 CREATE INDEX idx_match_history_start_time_match_id_qualified
 ON pathfinder_stats.match_history(start_time DESC, match_id)
-WHERE match_duration >= 2700;
+WHERE match_duration >= 2700 AND player_count >= 60;
+
+-- Optimize: All-time qualified match queries (no time filter)
+-- Used in: Pathfinder leaderboards "All Time" queries
+DROP INDEX IF EXISTS pathfinder_stats.idx_match_history_qualified_matches;
+CREATE INDEX idx_match_history_qualified_matches
+ON pathfinder_stats.match_history(match_id)
+WHERE player_count >= 60;
+
+-- Optimize: player_count filtering for quality match queries
+DROP INDEX IF EXISTS pathfinder_stats.idx_match_history_player_count;
+CREATE INDEX idx_match_history_player_count
+ON pathfinder_stats.match_history(player_count)
+WHERE player_count >= 60;
 
 -- ============================================================================
 -- SECTION 2: Core indexes for player_match_stats
@@ -219,7 +232,13 @@ COMMENT ON INDEX pathfinder_stats.idx_match_history_match_duration IS
 'Partial index for match duration filtering (45+ minute matches)';
 
 COMMENT ON INDEX pathfinder_stats.idx_match_history_start_time_match_id_qualified IS
-'Optimizes qualified_matches CTE: JOIN match_history ON match_id WHERE start_time >= X AND match_duration >= 2700';
+'Optimizes qualified_matches queries: time-filtered matches with player_count >= 60 AND match_duration >= 2700';
+
+COMMENT ON INDEX pathfinder_stats.idx_match_history_qualified_matches IS
+'Optimizes all-time qualified match queries: matches with player_count >= 60';
+
+COMMENT ON INDEX pathfinder_stats.idx_match_history_player_count IS
+'Index for efficient filtering by player_count for quality match criteria';
 
 COMMENT ON INDEX pathfinder_stats.idx_match_history_map_name_lower IS 
 'Expression index for case-insensitive map_name filtering';
