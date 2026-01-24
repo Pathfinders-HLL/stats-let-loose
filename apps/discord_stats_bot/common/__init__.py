@@ -119,6 +119,14 @@ from apps.discord_stats_bot.common.constants import (
     ORDER_BY_DISPLAY_LIST,
 )
 
+# Monospace table builder
+from apps.discord_stats_bot.common.monospace_table_builder import (
+    format_compact_value,
+    format_stat_monospace_table,
+    build_compact_leaderboard_embed,
+    DEFAULT_COMPACT_VIEW_PLAYERS,
+)
+
 __all__ = [
     # Database
     'get_readonly_db_pool',
@@ -201,4 +209,9 @@ __all__ = [
     'ORDER_BY_CHOICES',
     'ORDER_BY_VALID_VALUES',
     'ORDER_BY_DISPLAY_LIST',
+    # Monospace table builder
+    'format_compact_value',
+    'format_stat_monospace_table',
+    'build_compact_leaderboard_embed',
+    'DEFAULT_COMPACT_VIEW_PLAYERS',
 ]

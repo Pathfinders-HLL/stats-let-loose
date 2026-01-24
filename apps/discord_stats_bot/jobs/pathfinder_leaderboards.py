@@ -28,6 +28,7 @@ from apps.discord_stats_bot.common import (
     build_where_clause,
     format_sql_query_with_params,
     get_weapon_mapping,
+    build_compact_leaderboard_embed,
 )
 from apps.discord_stats_bot.config import get_bot_config
 
@@ -717,7 +718,9 @@ STAT_CONFIGS = [
     {
         "key": "infantry_kills",
         "title": "🎯 Most Infantry Kills",
+        "compact_title": "🎯 Highest Kills",
         "value_label": "Kills",
+        "value_abbrev": "Tot",  # 3-char abbreviation for compact view
         "color": discord.Color.from_rgb(16, 74, 0),  # green_dark
         "value_format": "int",
         "footer_note": f"Min {MIN_MATCHES_FOR_AGGREGATE} matches required"
@@ -725,7 +728,9 @@ STAT_CONFIGS = [
     {
         "key": "avg_kd",
         "title": "📊 Highest Average K/D",
+        "compact_title": "📊 Kills/Minute",
         "value_label": "Avg K/D",
+        "value_abbrev": "K/D",
         "color": discord.Color.from_rgb(34, 111, 14),  # green_mid
         "value_format": "float",
         "footer_note": f"Min {MIN_MATCHES_FOR_AGGREGATE} matches, 45+ min each"
@@ -733,7 +738,9 @@ STAT_CONFIGS = [
     {
         "key": "single_match_kills",
         "title": "💥 Most Kills in Single Match",
+        "compact_title": "💥 Best Match Kills",
         "value_label": "Kills",
+        "value_abbrev": "Kil",
         "color": discord.Color.from_rgb(52, 148, 28),  # green_light
         "value_format": "int",
         "footer_note": "Best single match performance"
@@ -741,7 +748,9 @@ STAT_CONFIGS = [
     {
         "key": "single_match_kd",
         "title": "⚔️ Best K/D in Single Match",
+        "compact_title": "⚔️ Highest KDR",
         "value_label": "K/D",
+        "value_abbrev": "K/D",
         "color": discord.Color.from_rgb(85, 107, 47),  # olive
         "value_format": "float",
         "footer_note": "Best single match K/D ratio"
@@ -749,7 +758,9 @@ STAT_CONFIGS = [
     {
         "key": "k98_kills",
         "title": "🔫 Most Karabiner 98k Kills",
+        "compact_title": "🔫 K98 Kills",
         "value_label": "K98 Kills",
+        "value_abbrev": "K98",
         "color": discord.Color.from_rgb(34, 139, 34),  # forest
         "value_format": "int",
         "footer_note": "Total kills with Karabiner 98k"
@@ -757,12 +768,17 @@ STAT_CONFIGS = [
     {
         "key": "obj_efficiency",
         "title": "🏆 Highest Objective Efficiency",
+        "compact_title": "🏆 Obj Efficiency",
         "value_label": "Pts/Min",
+        "value_abbrev": "Pts",
         "color": discord.Color.from_rgb(50, 205, 50),  # lime
         "value_format": "float",
         "footer_note": "(Offense + Defense) / Time Played per minute"
     },
 ]
+
+# Number of players to show in compact view
+COMPACT_VIEW_PLAYERS = 10
 
 
 def _build_stat_embed_page(
@@ -1187,28 +1203,34 @@ async def post_pathfinder_leaderboards():
         
         # Use cached data for default 7-day period
         cached_7d = _leaderboard_cache.get("7d")
+        now_utc = datetime.now(timezone.utc)
         
-        if cached_7d and cached_7d.get("embeds"):
-            embeds = cached_7d["embeds"]
-            logger.info("Using cached embeds for leaderboard posting")
+        if cached_7d and cached_7d.get("stats"):
+            stats = cached_7d["stats"]
+            cache_timestamp = cached_7d.get("timestamp", now_utc)
+            logger.info("Using cached stats for compact leaderboard posting")
         else:
             # Fallback: compute on-demand if cache is empty
             logger.warning("Cache empty, computing 7d leaderboard stats on-demand")
             stats = await fetch_all_leaderboard_stats(days=7)
-            embeds = build_leaderboard_embeds(stats, "Last 7 Days")
+            cache_timestamp = now_utc
         
-        # Create the view with timeframe selector
+        # Build compact embed with 2 stats per row
+        compact_embed = build_compact_leaderboard_embed(
+            stats, STAT_CONFIGS, "Last 7 Days", cache_timestamp, COMPACT_VIEW_PLAYERS
+        )
+        embeds = [compact_embed]
+        
+        # Create the view with Advanced View button
         view = LeaderboardView()
         
         # Get current timestamp for the update
-        now_utc = datetime.now(timezone.utc)
         unix_timestamp = int(now_utc.timestamp())
         discord_time = f"<t:{unix_timestamp}:F>"
         
         header_content = (
-            "# 🏅 Pathfinder Leaderboards\n"
             f"*Last updated: {discord_time}*\n"
-            "*Click the button below to view stats over different timeframes*"
+            "*Click the button below for advanced filtering and pagination*"
         )
         
         # Try to edit the stored message ID first
@@ -1246,10 +1268,20 @@ async def post_pathfinder_leaderboards():
             
             # Look through recent messages to find our leaderboard post
             async for message in channel.history(limit=20):
-                if (message.author == _bot_instance.user and 
-                    message.content.startswith("# 🏅 Pathfinder Leaderboards")):
-                    last_message = message
-                    break
+                if message.author == _bot_instance.user:
+                    # Check for new format (embed with Pathfinder title)
+                    has_leaderboard_embed = any(
+                        embed.title and "Pathfinder Leaderboards" in embed.title
+                        for embed in message.embeds
+                    )
+                    # Check for old format (header content)
+                    has_leaderboard_content = (
+                        message.content and 
+                        "# 🏅 Pathfinder Leaderboards" in message.content
+                    )
+                    if has_leaderboard_embed or has_leaderboard_content:
+                        last_message = message
+                        break
             
             if last_message:
                 logger.info(f"Found existing leaderboard message: {last_message.id}, editing...")
