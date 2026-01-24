@@ -23,6 +23,7 @@ DISCORD_MESSAGE_MAX_LENGTH = 2000
 
 LEADERBOARD_RESULT_LIMIT = 25
 PLAYER_TOP_MATCHES_LIMIT = 25
+DEFAULT_COMPACT_VIEW_PLAYERS = 10
 
 # =============================================================================
 # Time/Quality Thresholds
