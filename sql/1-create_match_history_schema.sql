@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS pathfinder_stats.match_history (
     -- Stored as INTEGER for easier querying and indexing
     match_duration INTEGER NOT NULL,
 
+    -- Number of players who participated in this match
+    -- Populated from COUNT(*) of player_match_stats after player stats are inserted
+    -- Used for efficient filtering of "quality" matches (60+ players)
+    player_count INTEGER NOT NULL DEFAULT 0,
+
     -- Optional: Add timestamps for when the record was created/updated
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -62,6 +67,8 @@ CREATE INDEX IF NOT EXISTS idx_match_history_start_time ON pathfinder_stats.matc
 CREATE INDEX IF NOT EXISTS idx_match_history_end_time ON pathfinder_stats.match_history(end_time);
 CREATE INDEX IF NOT EXISTS idx_match_history_winning_team ON pathfinder_stats.match_history(winning_team);
 CREATE INDEX IF NOT EXISTS idx_match_history_duration ON pathfinder_stats.match_history(match_duration);
+CREATE INDEX IF NOT EXISTS idx_match_history_player_count ON pathfinder_stats.match_history(player_count);
+CREATE INDEX IF NOT EXISTS idx_match_history_player_count_qualified ON pathfinder_stats.match_history(match_id) WHERE player_count >= 60;
 
 -- Add table and column comments for documentation
 COMMENT ON TABLE pathfinder_stats.match_history IS 'Main table storing match history data from get_scoreboard_maps API responses';
@@ -77,4 +84,4 @@ COMMENT ON COLUMN pathfinder_stats.match_history.winning_team IS 'Determined win
 COMMENT ON COLUMN pathfinder_stats.match_history.start_time IS 'Match start timestamp in ISO 8601 format';
 COMMENT ON COLUMN pathfinder_stats.match_history.end_time IS 'Match end timestamp in ISO 8601 format';
 COMMENT ON COLUMN pathfinder_stats.match_history.match_duration IS 'Duration of match in seconds (calculated from start_time and end_time)';
-
+COMMENT ON COLUMN pathfinder_stats.match_history.player_count IS 'Number of players who participated in this match (from player_match_stats count)';
