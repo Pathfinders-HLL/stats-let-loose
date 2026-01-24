@@ -28,6 +28,14 @@ CREATE INDEX idx_match_history_match_duration
 ON pathfinder_stats.match_history(match_duration)
 WHERE match_duration >= 2700;
 
+-- Optimize: qualified_matches CTE with time filtering
+-- Used in: Pathfinder leaderboards CTE: JOIN match_history ON match_id WHERE start_time >= X GROUP BY match_id
+-- This index helps PostgreSQL efficiently filter by start_time and join on match_id
+DROP INDEX IF EXISTS pathfinder_stats.idx_match_history_start_time_match_id_qualified;
+CREATE INDEX idx_match_history_start_time_match_id_qualified
+ON pathfinder_stats.match_history(start_time DESC, match_id)
+WHERE match_duration >= 2700;
+
 -- ============================================================================
 -- SECTION 2: Core indexes for player_match_stats
 -- ============================================================================
@@ -209,6 +217,9 @@ COMMENT ON INDEX pathfinder_stats.idx_match_history_match_id_start_time IS
 
 COMMENT ON INDEX pathfinder_stats.idx_match_history_match_duration IS
 'Partial index for match duration filtering (45+ minute matches)';
+
+COMMENT ON INDEX pathfinder_stats.idx_match_history_start_time_match_id_qualified IS
+'Optimizes qualified_matches CTE: JOIN match_history ON match_id WHERE start_time >= X AND match_duration >= 2700';
 
 COMMENT ON INDEX pathfinder_stats.idx_match_history_map_name_lower IS 
 'Expression index for case-insensitive map_name filtering';

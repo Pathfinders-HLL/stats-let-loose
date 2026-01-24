@@ -14,24 +14,37 @@ import discord
 from apps.discord_stats_bot.common.constants import DEFAULT_COMPACT_VIEW_PLAYERS, PATHFINDER_COLOR
 
 
-def format_compact_value(value: Any, value_format: str) -> str:
-    """Format a value to fit in 3 characters for compact display."""
+def format_compact_value(value: Any, value_format: str, width: int) -> str:
+    """
+    Format a value for compact display with dynamic width.
+    
+    Args:
+        value: The value to format
+        value_format: Format type ('int' or 'float')
+        width: Available width for the value
+    
+    Returns:
+        Formatted value string
+    """
     if value_format == "int":
         v = int(value)
-        if v >= 1000:
-            # Use 'k' suffix for thousands (e.g., 1.2k, 15k)
-            if v >= 10000:
-                return f"{v // 1000:>2}k"
-            return f"{v / 1000:.0f}k"
-        return f"{v:>3}"
+        if v >= 10000:
+            # Use decimal 'k' suffix for values >= 10,000 (e.g., "10.2k", "1.5k")
+            return f"{v / 1000:.1f}k".rjust(width)
+        # Use all available width for values < 10,000
+        return f"{v:>{width}}"
     elif value_format == "float":
         v = float(value)
         if v >= 100:
-            return f"{int(v):>3}"
+            # For 100+, show as integer
+            return f"{int(v):>{width}}"
         elif v >= 10:
-            return f"{v:.1f}"[:3].rjust(3)
-        return f"{v:.1f}"[:3].rjust(3)
-    return str(value)[:3].rjust(3)
+            # For 10-99.9, show one decimal
+            return f"{v:>{width}.1f}"
+        else:
+            # For 0-9.99, show one decimal
+            return f"{v:>{width}.1f}"
+    return str(value)[:width].rjust(width)
 
 
 def format_stat_monospace_table(
@@ -41,26 +54,42 @@ def format_stat_monospace_table(
     max_rows: int = DEFAULT_COMPACT_VIEW_PLAYERS
 ) -> str:
     """
-    Format a stat as a monospace table.
+    Format a stat as a monospace table with dynamic column widths.
     
     Format per row (25 chars max):
     - Rank: 3 chars (right-aligned with dot)
     - Space: 1 char
-    - Player: 17 chars (left-aligned, padded)
+    - Player: variable chars (left-aligned, no padding)
     - Space: 1 char
-    - Value: 3 chars (right-aligned)
+    - Value: remaining chars up to max (right-aligned)
+    
+    The player name and value columns share the remaining 21 characters dynamically.
+    Shorter player names allow more space for values.
     
     Args:
         results: List of result dictionaries with 'player_name'/'player_id' and 'value' keys
-        value_abbrev: 3-character abbreviation for the value column header
+        value_abbrev: 3-4 character abbreviation for the value column header
         value_format: Format type ('int' or 'float')
         max_rows: Maximum number of rows to display
     
     Returns:
         Formatted monospace table string wrapped in code blocks
     """
-    # Header row: #   Player               Val
-    header = f"{'#':>3} {'Player':<17} {value_abbrev:>3}"
+    # Total width for the table: 25 chars
+    # Rank (3) + Space (1) + Player + Space (1) + Value = 25
+    # So Player + Value = 20
+    total_width = 25
+    rank_width = 3
+    spaces = 2  # Two spaces (after rank, after player)
+    content_width = total_width - rank_width - spaces  # 20 chars for player + value
+    
+    # Minimum widths to ensure readability
+    min_player_width = 8
+    min_value_width = 4 if value_format == "float" else 3
+    max_player_width = content_width - min_value_width
+    
+    # Header row with max player width and min value width
+    header = f"{'#':>3} {'Player':<{max_player_width}} {value_abbrev:>{min_value_width}}"
     
     if not results:
         return f"```\n{header}\nNo data available\n```"
@@ -74,9 +103,16 @@ def format_stat_monospace_table(
         # Trim "PF | " or "PFr | " from player name
         trimmed_player_name = re.sub(r'^(?:PF|PFr)\s*\|\s*', '', player_name)
         
+        # Calculate dynamic widths based on actual player name length
+        actual_player_len = min(len(trimmed_player_name), max_player_width)
+        actual_player_len = max(actual_player_len, min_player_width)
+        
+        # Give remaining space to value column
+        value_width = content_width - actual_player_len
+        
         rank_str = f"{str(rank) + '.':>3}"
-        player_str = trimmed_player_name[:17].ljust(17)
-        value_str = format_compact_value(value, value_format)
+        player_str = trimmed_player_name[:actual_player_len].ljust(actual_player_len)
+        value_str = format_compact_value(value, value_format, value_width)
         
         lines.append(f"{rank_str} {player_str} {value_str}")
     

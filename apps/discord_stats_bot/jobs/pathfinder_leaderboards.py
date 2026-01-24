@@ -157,14 +157,49 @@ async def _save_leaderboard_state(message_id: int, channel_id: int) -> None:
         logger.error(f"Failed to save leaderboard state to {LEADERBOARD_STATE_FILE}: {e}", exc_info=True)
 
 
-def _build_quality_match_subquery() -> str:
-    """Build subquery to filter matches with 60+ players."""
-    return """
-        SELECT match_id 
-        FROM pathfinder_stats.player_match_stats 
-        GROUP BY match_id 
-        HAVING COUNT(*) >= 60
+async def _set_query_timeout(conn, over_last_days: int, default_timeout: int = 60, all_time_timeout: int = 300) -> None:
     """
+    Set statement timeout for queries based on time period.
+    
+    Args:
+        conn: Database connection
+        over_last_days: Number of days (0 for all-time)
+        default_timeout: Timeout in seconds for filtered queries (default: 60)
+        all_time_timeout: Timeout in seconds for all-time queries (default: 300 = 5 minutes)
+    """
+    if over_last_days == 0:
+        # All-time queries need more time
+        await conn.execute(f"SET statement_timeout = '{all_time_timeout}s'")
+    else:
+        # Use default timeout for filtered queries
+        await conn.execute(f"SET statement_timeout = '{default_timeout}s'")
+
+
+def _build_quality_match_subquery(time_where_clause: str = "") -> str:
+    """
+    Build subquery to filter matches with 60+ players.
+    
+    Args:
+        time_where_clause: Optional WHERE clause for time filtering (e.g., "WHERE mh.start_time >= $1")
+    """
+    if time_where_clause:
+        # Include time filter via match_history join
+        return f"""
+            SELECT pms.match_id 
+            FROM pathfinder_stats.player_match_stats pms
+            INNER JOIN pathfinder_stats.match_history mh ON pms.match_id = mh.match_id
+            {time_where_clause}
+            GROUP BY pms.match_id 
+            HAVING COUNT(*) >= {MIN_PLAYERS_PER_MATCH}
+        """
+    else:
+        # No time filter - scan all matches (for all-time queries)
+        return f"""
+            SELECT match_id 
+            FROM pathfinder_stats.player_match_stats 
+            GROUP BY match_id 
+            HAVING COUNT(*) >= {MIN_PLAYERS_PER_MATCH}
+        """
 
 
 async def _get_most_infantry_kills(
@@ -180,6 +215,9 @@ async def _get_most_infantry_kills(
     _, base_query_params, _ = create_time_filter_params(over_last_days)
     
     async with pool.acquire() as conn:
+        # Set timeout based on query type (all-time queries get longer timeout)
+        await _set_query_timeout(conn, over_last_days)
+        
         param_num = 1
         query_params = []
         
@@ -226,9 +264,12 @@ async def _get_most_infantry_kills(
         # Build LATERAL JOIN for player name lookup
         lateral_join = build_lateral_name_lookup("tp.player_id", lateral_where)
         
+        # Build qualified_matches CTE with time filter applied
+        qualified_matches_cte = _build_quality_match_subquery(time_where)
+        
         query = f"""
             WITH qualified_matches AS (
-                {_build_quality_match_subquery()}
+                {qualified_matches_cte}
             ),
             player_stats AS (
                 SELECT 
@@ -275,6 +316,9 @@ async def _get_average_kd(
     _, base_query_params, _ = create_time_filter_params(over_last_days)
     
     async with pool.acquire() as conn:
+        # Set timeout based on query type (all-time queries get longer timeout)
+        await _set_query_timeout(conn, over_last_days)
+        
         param_num = 1
         query_params = []
         
@@ -322,9 +366,12 @@ async def _get_average_kd(
         # Build LATERAL JOIN for player name lookup
         lateral_join = build_lateral_name_lookup("tp.player_id", lateral_where)
         
+        # Build qualified_matches CTE with time filter applied
+        qualified_matches_cte = _build_quality_match_subquery(time_where)
+        
         query = f"""
             WITH qualified_matches AS (
-                {_build_quality_match_subquery()}
+                {qualified_matches_cte}
             ),
             player_stats AS (
                 SELECT 
@@ -372,6 +419,9 @@ async def _get_most_kills_single_match(
     _, base_query_params, _ = create_time_filter_params(over_last_days)
     
     async with pool.acquire() as conn:
+        # Set timeout based on query type (all-time queries get longer timeout)
+        await _set_query_timeout(conn, over_last_days)
+        
         param_num = 1
         query_params = []
         
@@ -408,9 +458,12 @@ async def _get_most_kills_single_match(
             base_filter=" AND ".join(quality_filters)
         )
         
+        # Build qualified_matches CTE with time filter applied
+        qualified_matches_cte = _build_quality_match_subquery(time_where)
+        
         query = f"""
             WITH qualified_matches AS (
-                {_build_quality_match_subquery()}
+                {qualified_matches_cte}
             )
             SELECT DISTINCT ON (pms.player_id)
                 pms.player_id,
@@ -450,6 +503,9 @@ async def _get_best_kd_single_match(
     _, base_query_params, _ = create_time_filter_params(over_last_days)
     
     async with pool.acquire() as conn:
+        # Set timeout based on query type (all-time queries get longer timeout)
+        await _set_query_timeout(conn, over_last_days)
+        
         param_num = 1
         query_params = []
         
@@ -486,9 +542,12 @@ async def _get_best_kd_single_match(
             base_filter=" AND ".join(quality_filters)
         )
         
+        # Build qualified_matches CTE with time filter applied
+        qualified_matches_cte = _build_quality_match_subquery(time_where)
+        
         query = f"""
             WITH qualified_matches AS (
-                {_build_quality_match_subquery()}
+                {qualified_matches_cte}
             )
             SELECT DISTINCT ON (pms.player_id)
                 pms.player_id,
@@ -531,6 +590,9 @@ async def _get_most_k98_kills(
     _, base_query_params, _ = create_time_filter_params(over_last_days)
     
     async with pool.acquire() as conn:
+        # Set timeout based on query type (all-time queries get longer timeout)
+        await _set_query_timeout(conn, over_last_days)
+        
         param_num = 1
         query_params = []
         
@@ -577,9 +639,12 @@ async def _get_most_k98_kills(
         # Build LATERAL JOIN for player name lookup
         lateral_join = build_lateral_name_lookup("tp.player_id", lateral_where)
         
+        # Build qualified_matches CTE with time filter applied
+        qualified_matches_cte = _build_quality_match_subquery(time_where)
+        
         query = f"""
             WITH qualified_matches AS (
-                {_build_quality_match_subquery()}
+                {qualified_matches_cte}
             ),
             player_stats AS (
                 SELECT 
@@ -626,6 +691,9 @@ async def _get_avg_objective_efficiency(
     _, base_query_params, _ = create_time_filter_params(over_last_days)
     
     async with pool.acquire() as conn:
+        # Set timeout based on query type (all-time queries get longer timeout)
+        await _set_query_timeout(conn, over_last_days)
+        
         param_num = 1
         query_params = []
         
@@ -673,10 +741,13 @@ async def _get_avg_objective_efficiency(
         # Build LATERAL JOIN for player name lookup
         lateral_join = build_lateral_name_lookup("tp.player_id", lateral_where)
         
+        # Build qualified_matches CTE with time filter applied
+        qualified_matches_cte = _build_quality_match_subquery(time_where)
+        
         # Calculate efficiency per minute: (offense + defense) / (time_played / 60)
         query = f"""
             WITH qualified_matches AS (
-                {_build_quality_match_subquery()}
+                {qualified_matches_cte}
             ),
             player_stats AS (
                 SELECT 
