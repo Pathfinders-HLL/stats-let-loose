@@ -3,6 +3,20 @@ set -e
 
 # Ensure scripts are executable (in case permissions weren't preserved from host)
 chmod +x /check-and-create-tables.sh 2>/dev/null || true
+chmod +x /ensure-postgres-config.sh 2>/dev/null || true
+
+# Function to ensure PostgreSQL configuration persists
+ensure_config() {
+    echo "Waiting for PostgreSQL to be ready for configuration..."
+    until pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-stats_let_loose}" > /dev/null 2>&1; do
+        sleep 1
+    done
+    
+    echo "PostgreSQL is ready. Ensuring configuration persists..."
+    if [ -f "/ensure-postgres-config.sh" ]; then
+        /bin/bash /ensure-postgres-config.sh || echo "Config script completed (some settings may already be configured)"
+    fi
+}
 
 # Function to run migrations after postgres is ready
 run_migrations() {
@@ -15,7 +29,9 @@ run_migrations() {
     /bin/bash /check-and-create-tables.sh || echo "Migration script completed (some tables may already exist)"
 }
 
-# Run migrations in the background (non-blocking)
+# Run configuration and migrations in the background (non-blocking)
+# Configuration runs first, then migrations
+ensure_config &
 run_migrations &
 
 # The postgres image's entrypoint is at /usr/local/bin/docker-entrypoint.sh

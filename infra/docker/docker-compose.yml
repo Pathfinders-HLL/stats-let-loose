@@ -35,6 +35,8 @@ services:
       - ../../sql:/docker-entrypoint-initdb.d/sql:ro
       - ./check-and-create-tables.sh:/check-and-create-tables.sh:ro
       - ./postgres-entrypoint.sh:/postgres-entrypoint.sh:ro
+      - ./ensure-postgres-config.sh:/ensure-postgres-config.sh:ro
+      - ./postgresql.conf:/etc/postgresql/postgresql.conf:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
