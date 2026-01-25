@@ -11,10 +11,17 @@ These methods analyze JSON files and return data structures ready for insertion 
 from __future__ import annotations
 
 import gc
-import json
 import os
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
+
+try:
+    import orjson as json
+    # orjson.loads returns dict directly, but we need to handle bytes
+    _original_loads = json.loads
+    json.loads = lambda s: _original_loads(s.encode() if isinstance(s, str) else s)
+except ImportError:
+    import json
 
 from apps.api_stats_ingestion.transform.utils import (
     calculate_duration,
@@ -363,7 +370,8 @@ def transform_player_stats_data() -> List[Dict[str, Any]]:
 
 
 def transform_player_stats_data_batched(
-    batch_size: int = 1000
+    batch_size: int = 1000,
+    existing_match_ids: set = None
 ) -> Iterator[List[Dict[str, Any]]]:
     """
     Transform player statistics data in batches to reduce memory usage.
@@ -373,6 +381,7 @@ def transform_player_stats_data_batched(
     
     Args:
         batch_size: Number of player stats records to accumulate per batch
+        existing_match_ids: Set of match IDs already in database (to skip processing)
     
     Yields:
         Batches of transformed player stat dictionaries
@@ -394,6 +403,9 @@ def transform_player_stats_data_batched(
     total_files = file_count
     print(f"Found {total_files} match result files to process")
     
+    if existing_match_ids:
+        print(f"Skipping {len(existing_match_ids)} matches already in database")
+    
     if file_count <= 50000:
         json_files = file_paths
     else:
@@ -402,26 +414,29 @@ def transform_player_stats_data_batched(
     batch = []
     processed_count = 0
     skipped_files = 0
+    skipped_existing = 0
     total_stats = 0
     PROGRESS_INTERVAL = 100  # Print progress every N files
     
     for file_idx, file_path in enumerate(json_files, 1):
         if file_idx % PROGRESS_INTERVAL == 0:
-            print(f"  Processed {file_idx}/{total_files} files ({total_stats} player stats extracted)")
+            print(f"  Processed {file_idx}/{total_files} files ({total_stats} player stats extracted, {skipped_existing} already in DB)")
         
         try:
             file_content = file_path.read_text(encoding="utf-8")
             data = json.loads(file_content)
             match_result = data.get("result")
-            del file_content
             
             if match_result is None:
-                del data
                 continue
             
             match_id = match_result.get("id")
             if match_id is None:
-                del data, match_result
+                continue
+            
+            # Skip if match already processed
+            if existing_match_ids and match_id in existing_match_ids:
+                skipped_existing += 1
                 continue
             
             player_stats = match_result.get("player_stats") or []
@@ -436,13 +451,11 @@ def transform_player_stats_data_batched(
                     if len(batch) >= batch_size:
                         yield batch
                         batch = []
-                        gc.collect()
             
-            del data, match_result
             processed_count += 1
             
-            # Periodic garbage collection
-            if file_idx % 1000 == 0:
+            # Less frequent garbage collection (every 500 files instead of 1000)
+            if file_idx % 500 == 0:
                 gc.collect()
         
         except (json.JSONDecodeError, KeyError, IOError):
@@ -455,7 +468,7 @@ def transform_player_stats_data_batched(
     
     gc.collect()
     
-    print(f"\n✓ Player stats transformation complete: {total_stats} player stats from {processed_count} matches ({skipped_files} files skipped)")
+    print(f"\n✓ Player stats transformation complete: {total_stats} player stats from {processed_count} matches ({skipped_files} files skipped, {skipped_existing} already in DB)")
 
 
 def _extract_player_stat_data(

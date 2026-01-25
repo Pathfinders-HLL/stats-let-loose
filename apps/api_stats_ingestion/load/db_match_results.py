@@ -120,6 +120,20 @@ async def main(
             print("TRANSFORMING AND INSERTING PLAYER STATISTICS DATA")
             print("=" * 60)
             
+            # Fetch existing match IDs to skip already-processed files
+            existing_match_ids = set()
+            if skip_duplicates:
+                try:
+                    print("Fetching existing match IDs from database to skip already-processed files...")
+                    existing_ids = await conn.fetch(
+                        "SELECT DISTINCT match_id FROM pathfinder_stats.player_match_stats"
+                    )
+                    existing_match_ids = {row['match_id'] for row in existing_ids}
+                    print(f"Found {len(existing_match_ids)} matches already in database")
+                except Exception as e:
+                    print(f"Warning: Could not fetch existing match IDs: {e}")
+                    print("Will process all files (may lead to duplicate skipping during insertion)")
+            
             transform_batch_size = ingestion_config.player_stats_batch_size * 10
             total_inserted = 0
             total_skipped = 0
@@ -134,7 +148,10 @@ async def main(
             total_nemesis_stats_inserted = 0
             total_nemesis_stats_skipped = 0
             
-            for batch in transform_player_stats_data_batched(batch_size=transform_batch_size):
+            for batch in transform_player_stats_data_batched(
+                batch_size=transform_batch_size,
+                existing_match_ids=existing_match_ids if skip_duplicates else None
+            ):
                 batch_count += 1
                 if batch:
                     if update_weapon_stats and weapon_schema_map:

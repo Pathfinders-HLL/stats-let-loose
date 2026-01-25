@@ -12,3 +12,6 @@ aiohttp>=3.9.0
 
 # AWS services (needed for future features)
 boto3>=1.42.0
+
+# Fast JSON parsing (2-3x faster than standard json)
+orjson>=3.11.0

@@ -122,7 +122,6 @@ async def main(skip_existing: bool = False) -> None:
 
             # Skip matches already in database if skip_existing is enabled
             if skip_existing and match_id in existing_match_ids:
-                print(f"Skipping (in DB): id={match_id}, map={pretty_name}")
                 skipped_count += 1
                 continue
 
