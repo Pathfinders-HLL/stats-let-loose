@@ -114,6 +114,10 @@ services:
       POSTGRES_RO_PASSWORD: ${POSTGRES_RO_PASSWORD}
       # Cache directory for persistent storage
       DISCORD_BOT_CACHE_DIR: /app/data/cache
+      # AWS credentials for S3 access
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-west-2}
     volumes:
       - ../../apps/discord_stats_bot:/app/apps/discord_stats_bot:ro
       - ../../libs:/app/libs:ro
