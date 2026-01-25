@@ -101,12 +101,6 @@ async def load_pathfinder_player_ids_from_s3() -> None:
         logger.info("Pathfinder player IDs already initialized")
         return
     
-    if boto3 is None or ClientError is None:
-        logger.error("boto3 is not installed. Cannot load player IDs from S3.")
-        _pathfinder_player_ids = set()
-        _pathfinder_player_ids_initialized = True
-        raise ImportError("boto3 is not installed. Cannot load player IDs from S3.")
-    
     logger.info(f"Loading pathfinder player IDs from S3: s3://{S3_BUCKET_NAME}/{S3_KEY}")
     
     try:
