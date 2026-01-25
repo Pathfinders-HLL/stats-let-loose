@@ -22,6 +22,9 @@ from apps.discord_stats_bot.common import (
     close_db_pool,
     get_weapon_names,
 )
+from apps.discord_stats_bot.common.player import (
+    load_pathfinder_player_ids_from_s3,
+)
 from apps.discord_stats_bot.config import get_bot_config
 from apps.discord_stats_bot.jobs.pathfinder_leaderboards import (
     setup_pathfinder_leaderboards_task,
@@ -66,6 +69,21 @@ def check_channel_permission(interaction: discord.Interaction) -> bool:
 setup_player_command(tree, check_channel_permission)
 setup_leaderboard_command(tree, check_channel_permission)
 setup_profile_command(tree, check_channel_permission)
+
+
+@bot.event
+async def setup_hook():
+    """
+    Called before the bot connects to Discord.
+    This is where we initialize required resources like loading player IDs from S3.
+    """
+    logger.info("Running setup hook: Loading pathfinder player IDs from S3...")
+    try:
+        await load_pathfinder_player_ids_from_s3()
+        logger.info("Setup hook completed successfully")
+    except Exception as e:
+        logger.error(f"Failed to load pathfinder player IDs from S3 during setup: {e}", exc_info=True)
+        raise
 
 
 @bot.event

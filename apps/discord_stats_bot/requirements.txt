@@ -4,14 +4,17 @@
 asyncpg==0.31
 
 # Environment variable management
-python-dotenv~=1.2
+python-dotenv~=1.2.0
 
 # Discord API library
 discord.py~=2.3.0
 audioop-lts~=0.2.2
 
 # Caching library for player ID storage
-cachetools~=6.2
+cachetools~=6.2.0
 
 # Tabulate library for pretty printing
 tabulate~=0.9
+
+# AWS SDK for S3 access
+boto3~=1.42.0

@@ -3,15 +3,20 @@ Player lookup utilities and pathfinder ID management.
 """
 
 import logging
-from pathlib import Path
 from typing import Optional, Set, Tuple
 
 import asyncpg
+import boto3
 
 logger = logging.getLogger(__name__)
 
-# Cache for pathfinder player IDs loaded from file
+# S3 configuration
+S3_BUCKET_NAME = "stats-let-loose"
+S3_KEY = "pathfinder_player_ids.txt"
+
+# Cache for pathfinder player IDs loaded from S3
 _pathfinder_player_ids: Optional[Set[str]] = None
+_pathfinder_player_ids_initialized: bool = False
 
 
 async def find_player_by_id_or_name(
@@ -83,33 +88,65 @@ async def find_player_by_id_or_name(
     return (None, None)
 
 
-def get_pathfinder_player_ids() -> Set[str]:
-    """Load player IDs from pathfinder_player_ids.txt (cached after first load)."""
-    global _pathfinder_player_ids
+async def load_pathfinder_player_ids_from_s3() -> None:
+    """
+    Load pathfinder player IDs from S3 bucket.
     
-    if _pathfinder_player_ids is not None:
-        return _pathfinder_player_ids
+    This function must be called during bot startup before the bot is ready.
+    It loads the file from S3 bucket 'stats-let-loose' with key 'pathfinder_player_ids.txt'.
+    """
+    global _pathfinder_player_ids, _pathfinder_player_ids_initialized
     
-    common_dir = Path(__file__).parent
-    file_path = common_dir / "pathfinder_player_ids.txt"
-    player_ids: Set[str] = set()
+    if _pathfinder_player_ids_initialized:
+        logger.info("Pathfinder player IDs already initialized")
+        return
     
-    if not file_path.exists():
-        logger.info(f"Player IDs file not found at {file_path}")
-        _pathfinder_player_ids = player_ids
-        return player_ids
+    if boto3 is None or ClientError is None:
+        logger.error("boto3 is not installed. Cannot load player IDs from S3.")
+        _pathfinder_player_ids = set()
+        _pathfinder_player_ids_initialized = True
+        raise ImportError("boto3 is not installed. Cannot load player IDs from S3.")
+    
+    logger.info(f"Loading pathfinder player IDs from S3: s3://{S3_BUCKET_NAME}/{S3_KEY}")
     
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    player_ids.add(line)
+        s3_client = boto3.client('s3')
+        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=S3_KEY)
+        content = response['Body'].read().decode('utf-8')
+        
+        player_ids: Set[str] = set()
+        for line in content.splitlines():
+            line = line.strip()
+            if line and not line.startswith('#'):
+                player_ids.add(line)
         
         _pathfinder_player_ids = player_ids
-        logger.info(f"Loaded {len(player_ids)} player IDs")
-        return player_ids
+        _pathfinder_player_ids_initialized = True
+        logger.info(f"Successfully loaded {len(player_ids)} pathfinder player IDs from S3")
     except Exception as e:
-        logger.error(f"Error loading player IDs: {e}", exc_info=True)
+        logger.error(f"Unexpected error loading player IDs from S3: {e}", exc_info=True)
         _pathfinder_player_ids = set()
-        return _pathfinder_player_ids
+        _pathfinder_player_ids_initialized = True
+        raise
+
+
+def get_pathfinder_player_ids() -> Set[str]:
+    """
+    Get cached pathfinder player IDs.
+    
+    Note: load_pathfinder_player_ids_from_s3() must be called during bot startup
+    before this function is used.
+    
+    Returns:
+        Set of pathfinder player IDs, or empty set if not yet loaded.
+    """
+    global _pathfinder_player_ids
+    
+    if _pathfinder_player_ids is None:
+        logger.warning(
+            "get_pathfinder_player_ids() called before initialization. "
+            "Call load_pathfinder_player_ids_from_s3() during bot startup."
+        )
+        return set()
+    
+    return _pathfinder_player_ids
