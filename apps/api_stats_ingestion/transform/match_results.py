@@ -13,9 +13,8 @@ from __future__ import annotations
 import gc
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional
 
 from apps.api_stats_ingestion.transform.utils import (
     calculate_duration,
@@ -363,42 +362,8 @@ def transform_player_stats_data() -> List[Dict[str, Any]]:
     return transformed_player_stats
 
 
-def _process_single_file(file_path: Path) -> Tuple[List[Dict[str, Any]], bool]:
-    """
-    Process a single JSON file and extract player stats.
-    
-    Returns:
-        Tuple of (list of transformed player stats, success flag)
-    """
-    try:
-        file_content = file_path.read_text(encoding="utf-8")
-        data = json.loads(file_content)
-        match_result = data.get("result")
-        
-        if match_result is None:
-            return [], True
-        
-        match_id = match_result.get("id")
-        if match_id is None:
-            return [], True
-        
-        player_stats = match_result.get("player_stats") or []
-        transformed_stats = []
-        
-        for player_stat in player_stats:
-            transformed_stat = _extract_player_stat_data(player_stat, match_id)
-            if transformed_stat:
-                transformed_stats.append(transformed_stat)
-        
-        return transformed_stats, True
-        
-    except (json.JSONDecodeError, KeyError, IOError):
-        return [], False
-
-
 def transform_player_stats_data_batched(
-    batch_size: int = 1000,
-    max_workers: int = None
+    batch_size: int = 1000
 ) -> Iterator[List[Dict[str, Any]]]:
     """
     Transform player statistics data in batches to reduce memory usage.
@@ -406,13 +371,8 @@ def transform_player_stats_data_batched(
     This is a generator that yields batches of transformed player stats.
     Use this instead of transform_player_stats_data() for memory efficiency.
     
-    Uses parallel processing to read and parse multiple files concurrently,
-    significantly speeding up processing for large numbers of files.
-    
     Args:
         batch_size: Number of player stats records to accumulate per batch
-        max_workers: Maximum number of worker threads for parallel processing.
-                     Defaults to min(32, (os.cpu_count() or 1) + 4) for optimal performance.
     
     Yields:
         Batches of transformed player stat dictionaries
@@ -423,22 +383,21 @@ def transform_player_stats_data_batched(
     print(f"Transforming player stats data from {MATCH_RESULTS_DIR} in batches...")
     print("Scanning for match result files...")
     
-    # Collect all file paths
-    file_paths = list(MATCH_RESULTS_DIR.glob("*.json"))
-    total_files = len(file_paths)
+    # Use iterator for memory efficiency
+    file_count = 0
+    file_paths = []
+    for file_path in MATCH_RESULTS_DIR.glob("*.json"):
+        file_count += 1
+        if file_count <= 50000:  # Reasonable limit
+            file_paths.append(file_path)
+    
+    total_files = file_count
     print(f"Found {total_files} match result files to process")
     
-    if total_files == 0:
-        return
-    
-    # Determine optimal worker count
-    if max_workers is None:
-        # Use a reasonable default: min(32, CPU count + 4)
-        # This balances I/O parallelism with memory usage
-        cpu_count = os.cpu_count() or 1
-        max_workers = min(32, cpu_count + 4)
-    
-    print(f"Using {max_workers} parallel workers for file processing")
+    if file_count <= 50000:
+        json_files = file_paths
+    else:
+        json_files = MATCH_RESULTS_DIR.glob("*.json")
     
     batch = []
     processed_count = 0
@@ -446,31 +405,30 @@ def transform_player_stats_data_batched(
     total_stats = 0
     PROGRESS_INTERVAL = 100  # Print progress every N files
     
-    # Process files in parallel using ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all file processing tasks
-        future_to_file = {
-            executor.submit(_process_single_file, file_path): file_path
-            for file_path in file_paths
-        }
+    for file_idx, file_path in enumerate(json_files, 1):
+        if file_idx % PROGRESS_INTERVAL == 0:
+            print(f"  Processed {file_idx}/{total_files} files ({total_stats} player stats extracted)")
         
-        # Process completed tasks as they finish
-        for future_idx, future in enumerate(as_completed(future_to_file), 1):
-            file_path = future_to_file[future]
+        try:
+            file_content = file_path.read_text(encoding="utf-8")
+            data = json.loads(file_content)
+            match_result = data.get("result")
+            del file_content
             
-            if future_idx % PROGRESS_INTERVAL == 0:
-                print(f"  Processed {future_idx}/{total_files} files ({total_stats} player stats extracted)")
+            if match_result is None:
+                del data
+                continue
             
-            try:
-                transformed_stats, success = future.result()
-                
-                if success:
-                    processed_count += 1
-                else:
-                    skipped_files += 1
-                
-                # Add transformed stats to batch
-                for transformed_stat in transformed_stats:
+            match_id = match_result.get("id")
+            if match_id is None:
+                del data, match_result
+                continue
+            
+            player_stats = match_result.get("player_stats") or []
+            
+            for player_stat in player_stats:
+                transformed_stat = _extract_player_stat_data(player_stat, match_id)
+                if transformed_stat:
                     batch.append(transformed_stat)
                     total_stats += 1
                     
@@ -479,15 +437,17 @@ def transform_player_stats_data_batched(
                         yield batch
                         batch = []
                         gc.collect()
-                
-            except Exception as e:
-                # Log error but continue processing
-                skipped_files += 1
-                continue
+            
+            del data, match_result
+            processed_count += 1
             
             # Periodic garbage collection
-            if future_idx % 1000 == 0:
+            if file_idx % 1000 == 0:
                 gc.collect()
+        
+        except (json.JSONDecodeError, KeyError, IOError):
+            skipped_files += 1
+            continue
     
     # Yield remaining batch
     if batch:
