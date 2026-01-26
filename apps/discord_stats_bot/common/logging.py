@@ -4,9 +4,10 @@ Command logging utilities for Discord bot.
 
 import logging
 import time
-from typing import Optional
 
 import discord
+
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 

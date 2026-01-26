@@ -9,9 +9,10 @@ Profile management commands:
 
 import logging
 import time
-from typing import List
 
 import discord
+
+from typing import List
 from discord import app_commands
 
 from apps.discord_stats_bot.common import (

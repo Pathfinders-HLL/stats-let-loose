@@ -4,9 +4,10 @@ Database connection pool management for the Discord bot.
 
 import logging
 import os
-from typing import Optional
 
 import asyncpg
+
+from typing import Optional
 
 from libs.db.config import get_db_config
 

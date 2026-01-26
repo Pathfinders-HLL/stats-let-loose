@@ -13,10 +13,11 @@ import argparse
 import asyncio
 import json
 import os
-from pathlib import Path
-from typing import Any, Dict, List, Set
 
 import aiohttp
+
+from pathlib import Path
+from typing import Any, Dict, List, Set
 
 from apps.api_stats_ingestion.config import get_api_config
 from libs.db.config import get_db_config

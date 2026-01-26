@@ -3,6 +3,7 @@ SQL query building utilities for Discord bot commands.
 """
 
 import re
+
 from datetime import datetime, timedelta, timezone
 from typing import List, Tuple
 

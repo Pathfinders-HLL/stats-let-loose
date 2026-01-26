@@ -3,6 +3,7 @@ Shared utilities for building Discord messages with tables and embeds.
 """
 
 from typing import List, Optional
+
 from tabulate import tabulate
 
 from apps.discord_stats_bot.common.constants import DISCORD_MESSAGE_MAX_LENGTH

@@ -10,9 +10,10 @@ Provides autocomplete for:
 
 import csv
 import logging
-from typing import Dict, List, Set, Tuple
 
 import discord
+
+from typing import Dict, List, Set, Tuple
 from discord import app_commands
 
 from libs.hll_data import WEAPON_SCHEMAS_PATH, MAP_ID_NAME_MAPPINGS_PATH

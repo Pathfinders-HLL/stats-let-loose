@@ -10,13 +10,14 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
 
 import discord
+
 from asyncpg import exceptions as asyncpg_exceptions
+from datetime import datetime, timezone
 from discord.ext import tasks
+from pathlib import Path
+from typing import Optional, List, Dict, Any, Tuple
 
 from apps.discord_stats_bot.common import (
     get_readonly_db_pool,

@@ -5,9 +5,10 @@ Player weapon subcommand - Get total kills for a player by weapon category.
 import json
 import logging
 import time
-from typing import List
 
 import discord
+
+from typing import List
 from discord import app_commands
 from tabulate import tabulate
 

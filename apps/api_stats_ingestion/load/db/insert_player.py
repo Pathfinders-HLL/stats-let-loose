@@ -1,9 +1,10 @@
 """Player statistics insertion operations."""
 
 import json
-from typing import Any, Dict, List
 
 import asyncpg
+
+from typing import Any, Dict, List
 
 from apps.api_stats_ingestion.load.db.checks import check_existing_player_match_ids
 

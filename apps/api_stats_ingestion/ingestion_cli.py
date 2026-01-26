@@ -8,7 +8,6 @@ import argparse
 import asyncio
 import sys
 
-# Import async main functions from other modules
 from apps.api_stats_ingestion.fetch.all_matches import main as fetch_all_matches_main
 from apps.api_stats_ingestion.fetch.match_history import main as fetch_match_history_main
 from apps.api_stats_ingestion.load.db_match_results import main as update_db_main

@@ -3,10 +3,11 @@ Player lookup utilities and pathfinder ID management.
 """
 
 import logging
-from typing import Optional, Set, Tuple
 
 import asyncpg
 import boto3
+
+from typing import Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 

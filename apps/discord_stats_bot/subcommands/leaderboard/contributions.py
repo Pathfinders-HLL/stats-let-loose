@@ -4,9 +4,10 @@ Leaderboard contributions subcommand - Get top players by average or sum of scor
 
 import logging
 import time
-from typing import Any, Dict, List
 
 import discord
+
+from typing import Any, Dict, List
 from discord import app_commands
 
 from apps.discord_stats_bot.common import (

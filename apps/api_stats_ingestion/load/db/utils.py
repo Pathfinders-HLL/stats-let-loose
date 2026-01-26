@@ -1,10 +1,11 @@
 """Utility functions for database operations."""
 
 import csv
-from pathlib import Path
-from typing import Dict, Optional
 
 import asyncpg
+
+from pathlib import Path
+from typing import Dict, Optional
 
 from libs.hll_data import WEAPON_SCHEMAS_PATH
 

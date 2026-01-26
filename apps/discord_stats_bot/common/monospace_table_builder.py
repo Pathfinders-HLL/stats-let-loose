@@ -5,11 +5,12 @@ Provides utilities for formatting leaderboard statistics as compact
 monospace tables suitable for Discord embed fields.
 """
 
+import re
+
+import discord
+
 from datetime import datetime
 from typing import List, Dict, Any
-
-import re
-import discord
 
 from apps.discord_stats_bot.common.constants import DEFAULT_COMPACT_VIEW_PLAYERS, PATHFINDER_COLOR
 

@@ -1,8 +1,8 @@
 """Database check functions to verify existing records before insertion."""
 
-from typing import List, Tuple
-
 import asyncpg
+
+from typing import List, Tuple
 
 
 async def check_existing_match_ids(

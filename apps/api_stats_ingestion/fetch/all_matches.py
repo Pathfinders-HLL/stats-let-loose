@@ -9,10 +9,11 @@ import asyncio
 import json
 import math
 import os
-from pathlib import Path
-from typing import Any, Dict, List
 
 import aiohttp
+
+from pathlib import Path
+from typing import Any, Dict, List
 
 from apps.api_stats_ingestion.config import get_api_config
 

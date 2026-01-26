@@ -4,10 +4,11 @@ Player maps subcommand - Get a player's best match stats for a specific map.
 
 import logging
 import time
-from datetime import datetime
-from typing import List
 
 import discord
+
+from datetime import datetime
+from typing import List
 from discord import app_commands
 from tabulate import tabulate
 

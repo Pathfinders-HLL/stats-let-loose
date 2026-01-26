@@ -1,8 +1,8 @@
 """Weapon statistics insertion operations (kills and deaths)."""
 
-from typing import Any, Dict, List
-
 import asyncpg
+
+from typing import Any, Dict, List
 
 from apps.api_stats_ingestion.load.db.checks import (
     check_existing_player_death_ids,

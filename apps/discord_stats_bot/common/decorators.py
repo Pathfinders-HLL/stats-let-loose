@@ -5,11 +5,12 @@ Command decorators for Discord bot.
 import inspect
 import logging
 import time
-from functools import wraps
-from typing import Any, Callable, Optional
 
 import asyncpg
 import discord
+
+from functools import wraps
+from typing import Any, Callable, Optional
 
 from apps.discord_stats_bot.common.logging import (
     log_command_data,

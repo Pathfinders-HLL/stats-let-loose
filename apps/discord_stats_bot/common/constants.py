@@ -3,6 +3,7 @@ Constants and configuration mappings used across Discord bot commands.
 """
 
 import discord
+
 from discord import app_commands
 
 # =============================================================================

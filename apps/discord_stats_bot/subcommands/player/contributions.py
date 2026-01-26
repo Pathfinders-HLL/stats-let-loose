@@ -4,10 +4,11 @@ Player contributions subcommand - Get top 25 matches for a player by score.
 
 import logging
 import time
-from datetime import datetime
-from typing import List
 
 import discord
+
+from datetime import datetime
+from typing import List
 from discord import app_commands
 from tabulate import tabulate
 
