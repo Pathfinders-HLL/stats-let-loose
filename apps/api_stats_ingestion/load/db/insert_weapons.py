@@ -11,64 +11,6 @@ from apps.api_stats_ingestion.load.db.checks import (
 from apps.api_stats_ingestion.load.db.utils import map_weapon_to_column
 
 
-async def backfill_weapon_stats_from_db(
-    conn: asyncpg.Connection,
-    weapon_schema_map: Dict[str, str],
-    batch_size: int,
-    skip_duplicates: bool = True,
-) -> tuple[int, int, int, int]:
-    """Backfill weapon stats from existing player_match_stats records."""
-    rows = await conn.fetch("""
-        SELECT 
-            pms.player_id,
-            pms.match_id,
-            pms.player_name,
-            pms.team,
-            pms.raw_info
-        FROM pathfinder_stats.player_match_stats pms
-        WHERE pms.raw_info IS NOT NULL
-        AND (
-            pms.raw_info ? 'weapons' OR 
-            pms.raw_info ? 'death_by_weapons'
-        )
-        AND (
-            NOT EXISTS (
-                SELECT 1 FROM pathfinder_stats.player_kill_stats pks
-                WHERE pks.player_id = pms.player_id AND pks.match_id = pms.match_id
-            )
-            OR NOT EXISTS (
-                SELECT 1 FROM pathfinder_stats.player_death_stats pds
-                WHERE pds.player_id = pms.player_id AND pds.match_id = pms.match_id
-            )
-        )
-        ORDER BY pms.match_id, pms.player_id
-    """)
-    
-    if not rows:
-        return 0, 0, 0, 0
-    
-    print(f"\nFound {len(rows)} existing player_match_stats records to backfill weapon stats for...")
-    
-    player_stats = []
-    for row in rows:
-        player_stats.append({
-            "player_id": row["player_id"],
-            "match_id": row["match_id"],
-            "player_name": row["player_name"],
-            "team": row["team"],
-            "raw_info": row["raw_info"]
-        })
-    
-    kill_inserted, kill_skipped = await insert_player_kill_stats(
-        conn, player_stats, weapon_schema_map, batch_size, skip_duplicates
-    )
-    death_inserted, death_skipped = await insert_player_death_stats(
-        conn, player_stats, weapon_schema_map, batch_size, skip_duplicates
-    )
-    
-    return kill_inserted, kill_skipped, death_inserted, death_skipped
-
-
 async def insert_player_kill_stats(
     conn: asyncpg.Connection,
     player_stats: List[Dict[str, Any]],

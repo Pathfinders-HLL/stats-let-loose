@@ -25,7 +25,6 @@ from apps.api_stats_ingestion.load.db.insert_opponents import (
 )
 from apps.api_stats_ingestion.load.db.insert_player import insert_player_stats
 from apps.api_stats_ingestion.load.db.insert_weapons import (
-    backfill_weapon_stats_from_db,
     insert_player_death_stats,
     insert_player_kill_stats,
 )
@@ -50,7 +49,6 @@ __all__ = [
     # Weapon insertion
     "insert_player_kill_stats",
     "insert_player_death_stats",
-    "backfill_weapon_stats_from_db",
     # Opponent insertion
     "insert_player_victim_stats",
     "insert_player_nemesis_stats",

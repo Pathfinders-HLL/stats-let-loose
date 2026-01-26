@@ -5,10 +5,13 @@ This script orchestrates the ETL pipeline's load phase:
 - Loads match history data into pathfinder_stats.match_history table
 - Loads player statistics into pathfinder_stats.player_match_stats table
 - Loads weapon statistics (kills/deaths) into player_kill_stats and player_death_stats tables
+  (extracted from raw_info during initial ingestion)
 - Loads opponent statistics (victims/nemesis) into player_victim and player_nemesis tables
 - Updates player_count column in match_history for query optimization
 - Handles duplicate entries gracefully (ON CONFLICT DO NOTHING)
 - Provides progress feedback during insertion
+
+All data is inserted during the initial ingestion - no backfilling is required.
 """
 
 from __future__ import annotations
@@ -20,7 +23,6 @@ import sys
 
 from apps.api_stats_ingestion.config import get_ingestion_config
 from apps.api_stats_ingestion.load.db import (
-    backfill_weapon_stats_from_db,
     insert_match_history,
     insert_player_death_stats,
     insert_player_kill_stats,
@@ -210,27 +212,6 @@ async def main(
                 print(f"\nPlayer Death Stats Summary:")
                 print(f"  Successfully inserted: {total_death_stats_inserted}")
                 print(f"  Skipped (duplicates/invalid): {total_death_stats_skipped}")
-                
-                print("\n" + "=" * 60)
-                print("BACKFILLING WEAPON STATS FROM EXISTING PLAYER_MATCH_STATS")
-                print("=" * 60)
-                
-                backfill_kill_inserted, backfill_kill_skipped, backfill_death_inserted, backfill_death_skipped = await backfill_weapon_stats_from_db(
-                    conn, weapon_schema_map, ingestion_config.player_stats_batch_size, skip_duplicates=skip_duplicates
-                )
-                
-                total_kill_stats_inserted += backfill_kill_inserted
-                total_kill_stats_skipped += backfill_kill_skipped
-                total_death_stats_inserted += backfill_death_inserted
-                total_death_stats_skipped += backfill_death_skipped
-                
-                print(f"\nBackfill Summary:")
-                print(f"  Kill stats inserted: {backfill_kill_inserted}, skipped: {backfill_kill_skipped}")
-                print(f"  Death stats inserted: {backfill_death_inserted}, skipped: {backfill_death_skipped}")
-                
-                print(f"\nTotal Weapon Stats Summary:")
-                print(f"  Kill stats - Inserted: {total_kill_stats_inserted}, Skipped: {total_kill_stats_skipped}")
-                print(f"  Death stats - Inserted: {total_death_stats_inserted}, Skipped: {total_death_stats_skipped}")
             
             if update_opponent_stats:
                 print(f"\nPlayer Victim Stats Summary:")
