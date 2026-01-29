@@ -240,7 +240,7 @@ async def help_command(interaction: discord.Interaction):
 - `over_last_days`: Days back (default: 30, 0=all-time)
 - `only_pathfinders`: Filter to Pathfinders (default: false)
 - `kill_type`/`death_type`: All/Infantry/Armor/Artillery
-- `aggregate_by`: Average/Sum (default: Average)
+- `aggregate_by`: Average/Sum (default: Sum)
 - `order_by`: Kills/KDR/KPM (default: Kills)
         """
         

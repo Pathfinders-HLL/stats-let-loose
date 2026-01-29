@@ -157,7 +157,7 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
     )
     @app_commands.describe(
         death_type="(Optional) The death type to filter by",
-        aggregate_by="(Optional) Whether to use average or sum (default: average)",
+        aggregate_by="(Optional) Whether to use average or sum (default: sum)",
         only_pathfinders="(Optional) If true, only show Pathfinder players (default: false)"
     )
     @app_commands.autocomplete(death_type=death_type_autocomplete)
@@ -166,7 +166,7 @@ def register_deaths_subcommand(leaderboard_group: app_commands.Group, channel_ch
     async def leaderboard_deaths(
         interaction: discord.Interaction, 
         death_type: str = "all", 
-        aggregate_by: str = "average", 
+        aggregate_by: str = "sum", 
         only_pathfinders: bool = False
     ):
         """Get top players by average or sum of deaths from all matches."""

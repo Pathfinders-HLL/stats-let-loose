@@ -157,7 +157,7 @@ def register_contributions_subcommand(leaderboard_group: app_commands.Group, cha
     )
     @app_commands.describe(
         score_type="The score type to filter by",
-        aggregate_by="(Optional) Whether to use average or sum (default: average)",
+        aggregate_by="(Optional) Whether to use average or sum (default: sum)",
         only_pathfinders="(Optional) If true, only show Pathfinder players (default: false)"
     )
     @app_commands.autocomplete(score_type=score_type_autocomplete)
@@ -166,7 +166,7 @@ def register_contributions_subcommand(leaderboard_group: app_commands.Group, cha
     async def leaderboard_contributions(
         interaction: discord.Interaction, 
         score_type: str, 
-        aggregate_by: str = "average", 
+        aggregate_by: str = "sum", 
         only_pathfinders: bool = False
     ):
         """Get top players by average or sum of scores from all matches."""
