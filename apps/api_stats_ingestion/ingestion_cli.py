@@ -1,5 +1,8 @@
 """
 ETL pipeline orchestrator: fetch match data from CRCON API and load into PostgreSQL.
+
+Supports graceful shutdown: when SIGTERM is received (e.g., during Docker redeployment),
+the pipeline will complete its current batch before exiting cleanly.
 """
 
 from __future__ import annotations
@@ -10,6 +13,7 @@ import sys
 
 from apps.api_stats_ingestion.fetch.all_matches import main as fetch_all_matches_main
 from apps.api_stats_ingestion.fetch.match_history import main as fetch_match_history_main
+from apps.api_stats_ingestion.graceful_shutdown import setup_graceful_shutdown, should_shutdown
 from apps.api_stats_ingestion.load.db_match_results import main as update_db_main
 
 
@@ -23,6 +27,9 @@ async def run_pipeline(
     skip_insert: bool,
 ) -> None:
     """Run the full ingestion pipeline with configurable steps."""
+    # Set up graceful shutdown handling
+    setup_graceful_shutdown()
+    
     print("=" * 70)
     print("MATCH RESULTS INGESTION PIPELINE")
     print("=" * 70)
@@ -46,6 +53,13 @@ async def run_pipeline(
         print("=" * 70)
         print("Skipping all matches fetch (--skip-all-matches-fetch flag set)")
     
+    # Check for shutdown before proceeding to next step
+    if should_shutdown():
+        print("\n" + "=" * 70)
+        print("GRACEFUL SHUTDOWN - Pipeline interrupted after Step 0")
+        print("=" * 70)
+        return
+    
     # Step 1: Fetch match scoreboards from API
     if not skip_fetch:
         print("\n" + "=" * 70)
@@ -61,6 +75,13 @@ async def run_pipeline(
             sys.exit(1)
     else:
         print("\nSkipping fetch step (using existing match_results/ directory)")
+    
+    # Check for shutdown before proceeding to database insertion
+    if should_shutdown():
+        print("\n" + "=" * 70)
+        print("GRACEFUL SHUTDOWN - Pipeline interrupted after Step 1")
+        print("=" * 70)
+        return
     
     # Step 2: Transform and insert data into database
     if not skip_insert:
@@ -82,9 +103,15 @@ async def run_pipeline(
     else:
         print("\nSkipping database insertion step")
     
-    print("\n" + "=" * 70)
-    print("PIPELINE COMPLETED SUCCESSFULLY")
-    print("=" * 70)
+    # Check if we completed normally or were interrupted
+    if should_shutdown():
+        print("\n" + "=" * 70)
+        print("GRACEFUL SHUTDOWN COMPLETE")
+        print("=" * 70)
+    else:
+        print("\n" + "=" * 70)
+        print("PIPELINE COMPLETED SUCCESSFULLY")
+        print("=" * 70)
 
 
 def main() -> None:

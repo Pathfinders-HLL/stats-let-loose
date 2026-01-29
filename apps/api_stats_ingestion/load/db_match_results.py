@@ -10,6 +10,7 @@ This script orchestrates the ETL pipeline's load phase:
 - Updates player_count column in match_history for query optimization
 - Handles duplicate entries gracefully (ON CONFLICT DO NOTHING)
 - Provides progress feedback during insertion
+- Supports graceful shutdown to complete current batch before exit
 
 All data is inserted during the initial ingestion - no backfilling is required.
 """
@@ -22,6 +23,7 @@ import gc
 import sys
 
 from apps.api_stats_ingestion.config import get_ingestion_config
+from apps.api_stats_ingestion.graceful_shutdown import should_shutdown
 from apps.api_stats_ingestion.load.db import (
     insert_match_history,
     insert_player_death_stats,
@@ -89,15 +91,31 @@ async def main(
             total_inserted = 0
             total_skipped = 0
             batch_count = 0
+            shutdown_during_match_history = False
             
             for batch in transform_match_history_data_batched(batch_size=transform_batch_size):
+                # Check for shutdown request between batches
+                if should_shutdown():
+                    print("Shutdown requested - stopping match history insertion after current batch")
+                    shutdown_during_match_history = True
+                    break
+                
                 batch_count += 1
                 if batch:
-                    inserted, skipped = await insert_match_history(
-                        conn, batch, ingestion_config.match_history_batch_size, skip_duplicates=skip_duplicates
-                    )
-                    total_inserted += inserted
-                    total_skipped += skipped
+                    # Wrap batch processing in a transaction to ensure atomicity per batch
+                    async with conn.transaction():
+                        inserted, skipped = await insert_match_history(
+                            conn, batch, ingestion_config.match_history_batch_size, skip_duplicates=skip_duplicates
+                        )
+                        total_inserted += inserted
+                        total_skipped += skipped
+                    
+                    # After batch transaction commits, check for shutdown
+                    if should_shutdown():
+                        print("Shutdown requested - stopping match history insertion after completing current batch")
+                        shutdown_during_match_history = True
+                        break
+                    
                     gc.collect()
             
             print(f"\nMatch History Summary:")
@@ -105,6 +123,11 @@ async def main(
             print(f"  Skipped (duplicates/invalid): {total_skipped}")
             if batch_count == 0:
                 print("No match history data to insert")
+            
+            # If shutdown was requested during match history, exit early
+            if shutdown_during_match_history:
+                print("\nGraceful shutdown: Exiting after match history phase")
+                return
         
         weapon_schema_map = None
         if update_weapon_stats:
@@ -140,6 +163,7 @@ async def main(
             total_inserted = 0
             total_skipped = 0
             batch_count = 0
+            shutdown_during_player_stats = False
             
             total_kill_stats_inserted = 0
             total_kill_stats_skipped = 0
@@ -154,46 +178,64 @@ async def main(
                 batch_size=transform_batch_size,
                 existing_match_ids=existing_match_ids if skip_duplicates else None
             ):
+                # Check for shutdown request between batches
+                if should_shutdown():
+                    print("Shutdown requested - stopping player stats insertion after current batch")
+                    shutdown_during_player_stats = True
+                    break
+                
                 batch_count += 1
                 if batch:
-                    if update_weapon_stats and weapon_schema_map:
-                        kill_inserted, kill_skipped = await insert_player_kill_stats(
-                            conn, batch, weapon_schema_map, 
-                            ingestion_config.player_stats_batch_size, 
-                            skip_duplicates=skip_duplicates
-                        )
-                        total_kill_stats_inserted += kill_inserted
-                        total_kill_stats_skipped += kill_skipped
+                    # Wrap batch processing in a transaction to ensure atomicity per batch
+                    # This ensures that either all tables for a batch are inserted, or none are
+                    # If shutdown occurs mid-batch, we complete the current batch (let it commit),
+                    # then exit on the next iteration check
+                    async with conn.transaction():
+                        if update_weapon_stats and weapon_schema_map:
+                            kill_inserted, kill_skipped = await insert_player_kill_stats(
+                                conn, batch, weapon_schema_map, 
+                                ingestion_config.player_stats_batch_size, 
+                                skip_duplicates=skip_duplicates
+                            )
+                            total_kill_stats_inserted += kill_inserted
+                            total_kill_stats_skipped += kill_skipped
+                            
+                            death_inserted, death_skipped = await insert_player_death_stats(
+                                conn, batch, weapon_schema_map,
+                                ingestion_config.player_stats_batch_size,
+                                skip_duplicates=skip_duplicates
+                            )
+                            total_death_stats_inserted += death_inserted
+                            total_death_stats_skipped += death_skipped
                         
-                        death_inserted, death_skipped = await insert_player_death_stats(
-                            conn, batch, weapon_schema_map,
-                            ingestion_config.player_stats_batch_size,
-                            skip_duplicates=skip_duplicates
-                        )
-                        total_death_stats_inserted += death_inserted
-                        total_death_stats_skipped += death_skipped
-                    
-                    if update_opponent_stats:
-                        victim_inserted, victim_skipped = await insert_player_victim_stats(
-                            conn, batch, ingestion_config.player_stats_batch_size,
-                            skip_duplicates=skip_duplicates
-                        )
-                        total_victim_stats_inserted += victim_inserted
-                        total_victim_stats_skipped += victim_skipped
+                        if update_opponent_stats:
+                            victim_inserted, victim_skipped = await insert_player_victim_stats(
+                                conn, batch, ingestion_config.player_stats_batch_size,
+                                skip_duplicates=skip_duplicates
+                            )
+                            total_victim_stats_inserted += victim_inserted
+                            total_victim_stats_skipped += victim_skipped
+                            
+                            nemesis_inserted, nemesis_skipped = await insert_player_nemesis_stats(
+                                conn, batch, ingestion_config.player_stats_batch_size,
+                                skip_duplicates=skip_duplicates
+                            )
+                            total_nemesis_stats_inserted += nemesis_inserted
+                            total_nemesis_stats_skipped += nemesis_skipped
                         
-                        nemesis_inserted, nemesis_skipped = await insert_player_nemesis_stats(
-                            conn, batch, ingestion_config.player_stats_batch_size,
-                            skip_duplicates=skip_duplicates
-                        )
-                        total_nemesis_stats_inserted += nemesis_inserted
-                        total_nemesis_stats_skipped += nemesis_skipped
+                        if update_player_stats:
+                            inserted, skipped = await insert_player_stats(
+                                conn, batch, ingestion_config.player_stats_batch_size, skip_duplicates=skip_duplicates
+                            )
+                            total_inserted += inserted
+                            total_skipped += skipped
                     
-                    if update_player_stats:
-                        inserted, skipped = await insert_player_stats(
-                            conn, batch, ingestion_config.player_stats_batch_size, skip_duplicates=skip_duplicates
-                        )
-                        total_inserted += inserted
-                        total_skipped += skipped
+                    # After batch transaction commits, check for shutdown
+                    # This ensures the current batch completes before exiting
+                    if should_shutdown():
+                        print("Shutdown requested - stopping player stats insertion after completing current batch")
+                        shutdown_during_player_stats = True
+                        break
                     
                     gc.collect()
             
@@ -219,6 +261,11 @@ async def main(
                 
                 print(f"\nPlayer Nemesis Stats Summary:")
                 print(f"  Inserted: {total_nemesis_stats_inserted}, Skipped: {total_nemesis_stats_skipped}")
+            
+            # If shutdown was requested during player stats, exit early
+            if shutdown_during_player_stats:
+                print("\nGraceful shutdown: Exiting after player stats phase")
+                return
             
             # Update player_count in match_history after inserting player stats
             print("\n" + "=" * 60)

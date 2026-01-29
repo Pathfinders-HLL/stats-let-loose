@@ -80,6 +80,8 @@ services:
     networks:
       - statsletloose-network
     restart: unless-stopped
+    # Allow 180 seconds for graceful shutdown to complete current batch
+    stop_grace_period: 180s
     deploy:
       resources:
         limits:
@@ -88,14 +90,33 @@ services:
         reservations:
           memory: 128M
     # Run every 30 minutes using a cron-like scheduler
+    # Uses signal trapping to propagate SIGTERM to the Python process for graceful shutdown
     command: >
       sh -c "
-        echo 'Starting API ingestion scheduler...' &&
+        PYTHON_PID=0
+        
+        # Signal handler to forward SIGTERM to the Python process
+        handle_term() {
+          echo 'Received SIGTERM, forwarding to ingestion process...'
+          if [ \$PYTHON_PID -ne 0 ]; then
+            kill -TERM \$PYTHON_PID 2>/dev/null
+            wait \$PYTHON_PID
+          fi
+          exit 0
+        }
+        
+        trap handle_term TERM INT
+        
+        echo 'Starting API ingestion scheduler...'
         while true; do
-          echo \"\$(date): Running API ingestion job...\" &&
-          cd /app && python -m apps.api_stats_ingestion.ingestion_cli --skip-existing-fetch &&
-          echo \"\$(date): Job completed. Waiting 30 minutes...\" &&
-          sleep 1800
+          echo \"\$(date): Running API ingestion job...\"
+          cd /app && python -m apps.api_stats_ingestion.ingestion_cli --skip-existing-fetch &
+          PYTHON_PID=\$!
+          wait \$PYTHON_PID
+          PYTHON_PID=0
+          echo \"\$(date): Job completed. Waiting 30 minutes...\"
+          sleep 1800 &
+          wait \$!
         done
       "
 
