@@ -53,8 +53,8 @@ MIN_PLAYERS_PER_MATCH = 60
 MIN_MATCHES_FOR_AGGREGATE = 5  # Minimum matches for stats #1, #2, #5
 
 # Pagination settings
-TOP_PLAYERS_LIMIT = 50  # Top 50 players per stat
-PLAYERS_PER_PAGE = 10   # 10 players per page = 5 pages
+TOP_PLAYERS_LIMIT = 150  # Top 150 players per stat
+PLAYERS_PER_PAGE = 25    # 25 players per page = 6 pages
 
 # Timeframe options
 TIMEFRAME_OPTIONS = {
@@ -978,7 +978,7 @@ def _build_stat_embed(
         embed.description = "No data available"
         return embed
     
-    # Only show first page (10 players) for overview
+    # Only show first page (25 players) for overview
     page_results = results[:PLAYERS_PER_PAGE]
     
     ranks = []
