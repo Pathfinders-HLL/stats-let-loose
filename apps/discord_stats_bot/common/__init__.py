@@ -21,6 +21,11 @@ from apps.discord_stats_bot.common.database import (
 from apps.discord_stats_bot.common.player import (
     find_player_by_id_or_name,
     get_pathfinder_player_ids,
+    resolve_player_input,
+    lookup_player,
+    PlayerLookupResult,
+    PLAYER_NOT_SET_ERROR,
+    player_not_found_error,
 )
 
 # Caching (player IDs and format preferences)
@@ -55,6 +60,7 @@ from apps.discord_stats_bot.common.validation import (
 from apps.discord_stats_bot.common.sql_builders import (
     escape_sql_identifier,
     create_time_filter_params,
+    build_player_time_query_params,
     build_pathfinder_filter,
     build_lateral_name_lookup,
     build_from_clause_with_time_filter,
@@ -132,6 +138,7 @@ from apps.discord_stats_bot.common.monospace_table_builder import (
 from apps.discord_stats_bot.common.shared import (
     format_time_seconds,
     format_date,
+    build_table_message,
 )
 
 __all__ = [
@@ -141,6 +148,11 @@ __all__ = [
     # Player
     'find_player_by_id_or_name',
     'get_pathfinder_player_ids',
+    'resolve_player_input',
+    'lookup_player',
+    'PlayerLookupResult',
+    'PLAYER_NOT_SET_ERROR',
+    'player_not_found_error',
     # Cache
     'get_player_id',
     'set_player_id',
@@ -163,6 +175,7 @@ __all__ = [
     # SQL builders
     'escape_sql_identifier',
     'create_time_filter_params',
+    'build_player_time_query_params',
     'build_pathfinder_filter',
     'build_lateral_name_lookup',
     'build_from_clause_with_time_filter',
@@ -225,4 +238,5 @@ __all__ = [
     # Shared formatting utilities
     'format_time_seconds',
     'format_date',
+    'build_table_message',
 ]

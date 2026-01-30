@@ -10,20 +10,19 @@ import discord
 
 from typing import List
 from discord import app_commands
-from tabulate import tabulate
 
 from apps.discord_stats_bot.common import (
     get_readonly_db_pool,
-    find_player_by_id_or_name,
     log_command_completion,
     escape_sql_identifier,
     validate_over_last_days,
-    create_time_filter_params,
+    build_player_time_query_params,
     command_wrapper,
-    get_player_id,
     weapon_category_autocomplete,
     get_weapon_mapping,
     get_weapon_names,
+    build_table_message,
+    lookup_player,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,21 +78,8 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
             log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
 
-        if not player:
-            stored_player_id = await get_player_id(interaction.user.id)
-            if stored_player_id:
-                player = stored_player_id
-            else:
-                await interaction.followup.send(
-                    "❌ No player ID provided and you haven't set one! "
-                    "Either provide a player ID/name, or use `/profile setid` to set a default.", 
-                    ephemeral=True
-                )
-                log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
-                return
-
         if not weapon_category or weapon_category == ALL_WEAPONS_VALUE:
-            await _handle_all_weapons(interaction, player, over_last_days, command_start_time)
+            await _handle_all_weapons(interaction, interaction.user.id, player, over_last_days, command_start_time)
             return
 
         weapon_category_lower = weapon_category.lower().strip()
@@ -129,20 +115,15 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
             
         pool = await get_readonly_db_pool()
         async with pool.acquire() as conn:
-            player_id, found_player_name = await find_player_by_id_or_name(conn, player)
-
-            if not player_id:
-                await interaction.followup.send(
-                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.",
-                    ephemeral=True
-                )
+            player_result, error = await lookup_player(conn, interaction.user.id, player)
+            if error:
+                await interaction.followup.send(error, ephemeral=True)
                 log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
-                    
-            time_filter, base_query_params, time_period_text = create_time_filter_params(over_last_days)
             
-            if base_query_params:
-                time_filter = time_filter.replace("$1", "$2")
+            player_id = player_result.player_id
+                    
+            time_filter, query_params, time_period_text = build_player_time_query_params(player_id, over_last_days)
                         
             escaped_column = escape_sql_identifier(column_name)
             query1 = f"""
@@ -153,11 +134,11 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
                 WHERE pks.player_id = $1
                     {time_filter}
             """
-
-            query_params = [player_id] + base_query_params
             total_kills = await conn.fetchval(query1, *query_params) or 0
             
-            if base_query_params:
+            # Check if we have a time filter (query_params has more than just player_id)
+            if len(query_params) > 1:
+                time_threshold = query_params[1]
                 query2 = f"""
                     WITH player_totals AS (
                         SELECT
@@ -175,7 +156,7 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
                         COUNT(*) as total_players
                     FROM player_totals
                 """
-                result2 = await conn.fetchrow(query2, base_query_params[0], total_kills)
+                result2 = await conn.fetchrow(query2, time_threshold, total_kills)
             else:
                 query2 = f"""
                     WITH player_totals AS (
@@ -200,10 +181,9 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
                 rank = 0
                 total_players = 0
 
-            display_name = found_player_name if found_player_name else player
             if total_kills == 0:
                 await interaction.followup.send(
-                    f"Player `{display_name}` has **0** total kills with `{friendly_category_name}`{time_period_text}",
+                    f"Player `{player_result.display_name}` has **0** total kills with `{friendly_category_name}`{time_period_text}",
                     ephemeral=True
                 )
             else:
@@ -211,7 +191,7 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
                 if total_players > 0:
                     rank_text += f" out of **{total_players}** players"
                 await interaction.followup.send(
-                    f"Player `{display_name}` has **{total_kills:,}** total kills "
+                    f"Player `{player_result.display_name}` has **{total_kills:,}** total kills "
                     f"with `{friendly_category_name}`{time_period_text} ({rank_text})",
                     ephemeral=True
                 )
@@ -221,6 +201,7 @@ def register_weapon_subcommand(player_group: app_commands.Group, channel_check=N
 
 async def _handle_all_weapons(
     interaction: discord.Interaction, 
+    discord_user_id: int,
     player: str, 
     over_last_days: int, 
     command_start_time: float = None
@@ -233,17 +214,15 @@ async def _handle_all_weapons(
     
     pool = await get_readonly_db_pool()
     async with pool.acquire() as conn:
-        player_id, found_player_name = await find_player_by_id_or_name(conn, player)
-
-        if not player_id:
-            await interaction.followup.send(
-                f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.",
-                ephemeral=True
-            )
+        player_result, error = await lookup_player(conn, discord_user_id, player)
+        if error:
+            await interaction.followup.send(error, ephemeral=True)
             log_command_completion("player weapon", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
         
-        time_filter, base_query_params, time_period_text = create_time_filter_params(over_last_days)
+        player_id = player_result.player_id
+        
+        time_filter, query_params, time_period_text = build_player_time_query_params(player_id, over_last_days)
         
         all_column_names = sorted(set(WEAPON_MAPPING.values()))
         
@@ -261,19 +240,15 @@ async def _handle_all_weapons(
         
         json_pairs = ", ".join([f"{key}, {val}" for key, val in zip(json_keys, json_values)])
         
-        adjusted_time_filter = time_filter
-        if base_query_params:
-            adjusted_time_filter = time_filter.replace("$1", "$2")
-        
-        query_params = [player_id] + base_query_params
-        if base_query_params:
+        # Check if we have a time filter (query_params has more than just player_id)
+        if len(query_params) > 1:
             query = f"""
                 SELECT json_build_object({json_pairs}) as weapon_totals
                 FROM pathfinder_stats.player_kill_stats pks
                 INNER JOIN pathfinder_stats.match_history mh
                     ON pks.match_id = mh.match_id
                 WHERE pks.player_id = $1
-                    {adjusted_time_filter}
+                    {time_filter}
             """
         else:
             query = f"""
@@ -281,7 +256,6 @@ async def _handle_all_weapons(
                 FROM pathfinder_stats.player_kill_stats pks
                 WHERE pks.player_id = $1
             """
-            query_params = [player_id]
         
         result = await conn.fetchrow(query, *query_params)
         weapon_totals_json = result['weapon_totals'] if result else {}
@@ -298,7 +272,9 @@ async def _handle_all_weapons(
             
             escaped_column = escape_sql_identifier(column_name)
             
-            if base_query_params:
+            # Check if we have a time filter (aka when query_params has more than just player_id)
+            if len(query_params) > 1:
+                time_threshold = query_params[1]
                 rank_query = f"""
                     WITH player_totals AS (
                         SELECT
@@ -316,7 +292,7 @@ async def _handle_all_weapons(
                         COUNT(*) as total_players
                     FROM player_totals
                 """
-                rank_result = await conn.fetchrow(rank_query, base_query_params[0], total_kills)
+                rank_result = await conn.fetchrow(rank_query, time_threshold, total_kills)
             else:
                 rank_query = f"""
                     WITH player_totals AS (
@@ -349,14 +325,11 @@ async def _handle_all_weapons(
         weapon_stats.sort(key=lambda x: x['kills'], reverse=True)
         
         if not weapon_stats:
-            display_name = found_player_name if found_player_name else player
             await interaction.followup.send(
-                f"Player `{display_name}` has **0** kills with any weapon{time_period_text}",
+                f"Player `{player_result.display_name}` has **0** kills with any weapon{time_period_text}",
                 ephemeral=True
             )
             return
-        
-        display_name = found_player_name if found_player_name else player
         
         table_data = []
         for weapon_stat in weapon_stats:
@@ -373,29 +346,16 @@ async def _handle_all_weapons(
         headers = ["Weapon", "Kills", "Rank"]
         
         message_prefix_lines = [
-            f"## All Weapons - {display_name}{time_period_text}",
+            f"## All Weapons - {player_result.display_name}{time_period_text}",
             "*Sorted by total kills (highest to lowest)*\n"
         ]
         
-        for num_rows in range(len(table_data), 0, -1):
-            table_str = tabulate(
-                table_data[:num_rows],
-                headers=headers,
-                tablefmt="github"
-            )
-            
-            message_lines = message_prefix_lines.copy()
-            message_lines.append("```")
-            message_lines.append(table_str)
-            message_lines.append("```")
-            
-            if num_rows < len(table_data):
-                message_lines.append(f"\n*Showing {num_rows} of {len(table_data)} weapons (message length limit)*")
-            
-            message = "\n".join(message_lines)
-            
-            if len(message) <= 2000:
-                break
+        message = build_table_message(
+            table_data=table_data,
+            headers=headers,
+            message_prefix_lines=message_prefix_lines,
+            item_name="weapons"
+        )
         
         await interaction.followup.send(message, ephemeral=True)
         log_command_completion("player weapon", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)

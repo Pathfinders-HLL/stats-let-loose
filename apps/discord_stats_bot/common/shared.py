@@ -1,9 +1,17 @@
 """
 Shared utility functions for common operations and reusable components.
+
+Provides:
+- Time and date formatting utilities
+- Table message building with auto-truncation for Discord limits
 """
 
 from datetime import datetime
-from typing import Union
+from typing import List, Union
+
+from tabulate import tabulate
+
+from apps.discord_stats_bot.common.constants import DISCORD_MESSAGE_MAX_LENGTH
 
 
 def format_time_seconds(seconds: Union[int, float]) -> str:
@@ -53,3 +61,50 @@ def format_date(date_value: Union[datetime, str]) -> str:
     if isinstance(date_value, datetime):
         return date_value.strftime("%Y-%m-%d")
     return str(date_value)
+
+
+def build_table_message(
+    table_data: List[List],
+    headers: List[str],
+    message_prefix_lines: List[str],
+    item_name: str = "rows"
+) -> str:
+    """
+    Build a Discord-compatible table message with auto-truncation.
+    
+    Creates a message containing a table formatted for Discord, automatically
+    truncating rows if the message exceeds Discord's character limit.
+    
+    Args:
+        table_data: List of rows, where each row is a list of values
+        headers: Column headers for the table
+        message_prefix_lines: Lines to display before the table (e.g., title)
+        item_name: Name of items for truncation message (e.g., "matches", "players")
+    
+    Returns:
+        Formatted message string that fits within Discord's message length limit
+    """
+    for num_rows in range(len(table_data), 0, -1):
+        table_str = tabulate(
+            table_data[:num_rows],
+            headers=headers,
+            tablefmt="github"
+        )
+        
+        message_lines = message_prefix_lines.copy()
+        message_lines.append("```")
+        message_lines.append(table_str)
+        message_lines.append("```")
+        
+        if num_rows < len(table_data):
+            message_lines.append(
+                f"\n*Showing {num_rows} of {len(table_data)} {item_name} (message length limit)*"
+            )
+        
+        message = "\n".join(message_lines)
+        
+        if len(message) <= DISCORD_MESSAGE_MAX_LENGTH:
+            return message
+    
+    # Fallback: return just the prefix with an error message
+    return "\n".join(message_prefix_lines + ["```", "No data to display", "```"])

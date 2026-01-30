@@ -39,6 +39,45 @@ def create_time_filter_params(over_last_days: int) -> Tuple[str, list, str]:
     return time_filter, query_params, time_period_text
 
 
+def build_player_time_query_params(
+    player_id: str,
+    over_last_days: int
+) -> Tuple[str, List, str]:
+    """
+    Build time filter and query params for player-centric queries.
+    
+    This is a convenience wrapper around create_time_filter_params that:
+    1. Creates the time filter
+    2. Adjusts the parameter position ($1 -> $2) for queries where player_id is $1
+    3. Prepends player_id to the query params list
+    
+    Args:
+        player_id: The player ID to include as the first query parameter
+        over_last_days: Number of days to filter by (0 for all-time)
+        
+    Returns:
+        Tuple of (adjusted_time_filter, query_params, time_period_text)
+        where query_params = [player_id, ...time_params]
+        
+    Example:
+        time_filter, query_params, time_text = build_player_time_query_params(player_id, 30)
+        query = f'''
+            SELECT * FROM table
+            WHERE player_id = $1
+                {time_filter}
+        '''
+        results = await conn.fetch(query, *query_params)
+    """
+    time_filter, base_query_params, time_period_text = create_time_filter_params(over_last_days)
+    
+    if base_query_params:
+        time_filter = time_filter.replace("$1", "$2")
+    
+    query_params = [player_id] + base_query_params
+    
+    return time_filter, query_params, time_period_text
+
+
 def build_pathfinder_filter(
     table_alias: str,
     param_start: int,

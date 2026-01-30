@@ -7,26 +7,24 @@ import time
 
 import discord
 
-from typing import List
 from discord import app_commands
-from tabulate import tabulate
 
 from apps.discord_stats_bot.common import (
     get_readonly_db_pool,
-    find_player_by_id_or_name,
     log_command_completion,
     escape_sql_identifier,
     validate_choice_parameter,
     command_wrapper,
-    get_player_id,
     map_name_autocomplete,
     find_map_name_case_insensitive,
     get_map_names,
     order_by_autocomplete,
+    format_date,
+    build_table_message,
+    lookup_player,
     ORDER_BY_CONFIG,
     ORDER_BY_VALID_VALUES,
     ORDER_BY_DISPLAY_LIST,
-    format_date,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,19 +53,6 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
         """Get a player's best match stats for a specific map."""
         command_start_time = time.time()
         log_kwargs = {"map_name": map_name, "order_by": order_by, "player": player}
-
-        if not player:
-            stored_player_id = await get_player_id(interaction.user.id)
-            if stored_player_id:
-                player = stored_player_id
-            else:
-                await interaction.followup.send(
-                    "❌ No player ID provided and you haven't set one! "
-                    "Either provide a player ID/name, or use `/profile setid` to set a default.", 
-                    ephemeral=True
-                )
-                log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
-                return
 
         map_name = map_name.strip()
         if not map_name:
@@ -102,15 +87,13 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
 
         pool = await get_readonly_db_pool()
         async with pool.acquire() as conn:
-            player_id, found_player_name = await find_player_by_id_or_name(conn, player)
-
-            if not player_id:
-                await interaction.followup.send(
-                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.",
-                    ephemeral=True
-                )
+            player_result, error = await lookup_player(conn, interaction.user.id, player)
+            if error:
+                await interaction.followup.send(error, ephemeral=True)
                 log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
+            
+            player_id = player_result.player_id
 
             escaped_order_column = escape_sql_identifier(order_column)
             query = f"""
@@ -142,13 +125,11 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
 
             if not results:
                 await interaction.followup.send(
-                    f"❌ No matches found for player `{found_player_name or player}` on map `{proper_map_name}`.",
+                    f"❌ No matches found for player `{player_result.display_name}` on map `{proper_map_name}`.",
                     ephemeral=True
                 )
                 log_command_completion("player maps", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
-
-            display_player_name = found_player_name if found_player_name else player
             
             table_data = []
             for row in results:
@@ -171,29 +152,16 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
             
             message_prefix_lines = [
                 f"## Best Matches on {proper_map_name}",
-                f"**Player:** {display_player_name}",
+                f"**Player:** {player_result.display_name}",
                 f"**Ordered by:** {order_display_name}\n"
             ]
             
-            for num_rows in range(len(table_data), 0, -1):
-                table_str = tabulate(
-                    table_data[:num_rows],
-                    headers=headers,
-                    tablefmt="github"
-                )
-                
-                message_lines = message_prefix_lines.copy()
-                message_lines.append("```")
-                message_lines.append(table_str)
-                message_lines.append("```")
-                
-                if num_rows < len(table_data):
-                    message_lines.append(f"\n*Showing {num_rows} of {len(table_data)} matches (message length limit)*")
-                
-                message = "\n".join(message_lines)
-                
-                if len(message) <= 2000:
-                    break
+            message = build_table_message(
+                table_data=table_data,
+                headers=headers,
+                message_prefix_lines=message_prefix_lines,
+                item_name="matches"
+            )
 
             await interaction.followup.send(message, ephemeral=True)
             log_command_completion("player maps", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)

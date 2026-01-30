@@ -7,25 +7,23 @@ import time
 
 import discord
 
-from typing import List
 from discord import app_commands
-from tabulate import tabulate
 
 from apps.discord_stats_bot.common import (
     get_readonly_db_pool,
-    find_player_by_id_or_name,
     log_command_completion,
     escape_sql_identifier,
     validate_over_last_days,
     validate_choice_parameter,
-    create_time_filter_params,
+    build_player_time_query_params,
     command_wrapper,
-    get_player_id,
     death_type_autocomplete,
+    format_date,
+    build_table_message,
+    lookup_player,
     DEATH_TYPE_CONFIG,
     DEATH_TYPE_VALID_VALUES,
     DEATH_TYPE_DISPLAY_LIST,
-    format_date,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,18 +60,6 @@ def register_deaths_subcommand(player_group: app_commands.Group, channel_check=N
             log_command_completion("player deaths", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
             return
 
-        if not player:
-            stored_player_id = await get_player_id(interaction.user.id)
-            if stored_player_id:
-                player = stored_player_id
-            else:
-                await interaction.followup.send(
-                    "❌ No player ID provided and you haven't set one! "
-                    "Either provide a player ID/name, or use `/profile setid` to set a default.", 
-                    ephemeral=True
-                )
-                return
-
         try:
             death_type_lower = validate_choice_parameter(
                 "death type", death_type, DEATH_TYPE_VALID_VALUES, DEATH_TYPE_DISPLAY_LIST
@@ -89,22 +75,14 @@ def register_deaths_subcommand(player_group: app_commands.Group, channel_check=N
 
         pool = await get_readonly_db_pool()
         async with pool.acquire() as conn:
-            player_id, found_player_name = await find_player_by_id_or_name(conn, player)
-
-            if not player_id:
-                await interaction.followup.send(
-                    f"❌ Could not find user: `{player}`. Try using a player ID or exact player name.",
-                    ephemeral=True
-                )
+            player_result, error = await lookup_player(conn, interaction.user.id, player)
+            if error:
+                await interaction.followup.send(error, ephemeral=True)
                 log_command_completion("player deaths", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
-
-            time_filter, base_query_params, time_period_text = create_time_filter_params(over_last_days)
             
-            if base_query_params:
-                time_filter = time_filter.replace("$1", "$2")
-            
-            query_params = [player_id] + base_query_params
+            player_id = player_result.player_id
+            time_filter, query_params, time_period_text = build_player_time_query_params(player_id, over_last_days)
                     
             escaped_column = escape_sql_identifier(death_column)
             query = f"""
@@ -131,14 +109,12 @@ def register_deaths_subcommand(player_group: app_commands.Group, channel_check=N
 
             if not results:
                 await interaction.followup.send(
-                    f"❌ No matches found for player `{found_player_name or player}` "
+                    f"❌ No matches found for player `{player_result.display_name}` "
                     f"with {display_name.lower()}{time_period_text}.",
                     ephemeral=True
                 )
                 log_command_completion("player deaths", command_start_time, success=False, interaction=interaction, kwargs=log_kwargs)
                 return
-
-            display_player_name = found_player_name if found_player_name else player
             
             table_data = []
             for rank, row in enumerate(results, 1):
@@ -158,27 +134,14 @@ def register_deaths_subcommand(player_group: app_commands.Group, channel_check=N
                 ])
 
             headers = ["#", "Map Name", "Deaths", "Kills", "K/D", "Date"]
-            message_prefix_lines = [f"## Top 25 Matches - {display_player_name} ({display_name}){time_period_text}"]
+            message_prefix_lines = [f"## Top 25 Matches - {player_result.display_name} ({display_name}){time_period_text}"]
             
-            for num_rows in range(len(table_data), 0, -1):
-                table_str = tabulate(
-                    table_data[:num_rows],
-                    headers=headers,
-                    tablefmt="github"
-                )
-                
-                message_lines = message_prefix_lines.copy()
-                message_lines.append("```")
-                message_lines.append(table_str)
-                message_lines.append("```")
-                
-                if num_rows < len(table_data):
-                    message_lines.append(f"\n*Showing {num_rows} of {len(table_data)} matches (message length limit)*")
-                
-                message = "\n".join(message_lines)
-                
-                if len(message) <= 2000:
-                    break
+            message = build_table_message(
+                table_data=table_data,
+                headers=headers,
+                message_prefix_lines=message_prefix_lines,
+                item_name="matches"
+            )
 
             await interaction.followup.send(message, ephemeral=True)
             log_command_completion("player deaths", command_start_time, success=True, interaction=interaction, kwargs=log_kwargs)

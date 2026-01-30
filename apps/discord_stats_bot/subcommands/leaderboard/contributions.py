@@ -25,13 +25,13 @@ from apps.discord_stats_bot.common import (
     build_where_clause,
     score_type_autocomplete,
     aggregate_by_autocomplete,
+    format_time_seconds,
     SCORE_TYPE_CONFIG,
     SCORE_TYPE_VALID_VALUES,
     SCORE_TYPE_DISPLAY_LIST,
     AGGREGATE_BY_VALID_VALUES,
     AGGREGATE_BY_DISPLAY_LIST,
     PATHFINDER_COLOR,
-    format_time_seconds,
 )
 from apps.discord_stats_bot.common.leaderboard_pagination import (
     send_paginated_leaderboard,

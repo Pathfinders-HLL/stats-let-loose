@@ -1,5 +1,10 @@
 """
 Player lookup utilities and pathfinder ID management.
+
+Provides:
+- Player ID resolution from cache or user input
+- Database player lookup by ID or name
+- Pathfinder player ID management from S3
 """
 
 import logging
@@ -7,9 +12,118 @@ import logging
 import asyncpg
 import boto3
 
+from dataclasses import dataclass
 from typing import Optional, Set, Tuple
 
+from apps.discord_stats_bot.common.cache import get_player_id
+
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Player Resolution and Lookup
+# =============================================================================
+
+# Error messages for player-related operations
+PLAYER_NOT_SET_ERROR = (
+    "❌ No player ID provided and you haven't set one! "
+    "Either provide a player ID/name, or use `/profile setid` to set a default."
+)
+
+
+def player_not_found_error(player_input: str) -> str:
+    """Generate error message for player not found."""
+    return f"❌ Could not find user: `{player_input}`. Try using a player ID or exact player name."
+
+
+@dataclass
+class PlayerLookupResult:
+    """
+    Result of a player lookup operation.
+    
+    Attributes:
+        player_id: The resolved player ID, or None if not found
+        player_name: The most recent player name, or None if not found
+        original_input: The original input used for lookup
+        is_found: Whether the player was found in the database
+    """
+    player_id: Optional[str]
+    player_name: Optional[str]
+    original_input: str
+    
+    @property
+    def is_found(self) -> bool:
+        """Returns True if the player was found."""
+        return self.player_id is not None
+    
+    @property
+    def display_name(self) -> str:
+        """Returns the best display name available."""
+        return self.player_name or self.original_input
+
+
+async def resolve_player_input(
+    discord_user_id: int,
+    player_input: Optional[str]
+) -> Optional[str]:
+    """
+    Resolve player input, falling back to stored player ID if not provided.
+    
+    Args:
+        discord_user_id: The Discord user's ID for cache lookup
+        player_input: Optional player ID or name provided by user
+        
+    Returns:
+        Resolved player string, or None if no player could be determined
+    """
+    if player_input:
+        return player_input
+    
+    stored_player_id = await get_player_id(discord_user_id)
+    return stored_player_id
+
+
+async def lookup_player(
+    conn: asyncpg.Connection,
+    discord_user_id: int,
+    player_input: Optional[str]
+) -> Tuple[Optional[PlayerLookupResult], Optional[str]]:
+    """
+    Resolve player input and look up in database.
+    
+    This is a convenience function that combines resolve_player_input and
+    find_player_by_id_or_name, returning structured results.
+    
+    Args:
+        conn: Database connection
+        discord_user_id: The Discord user's ID for cache lookup
+        player_input: Optional player ID or name provided by user
+        
+    Returns:
+        Tuple of (PlayerLookupResult, error_message):
+        - If player input couldn't be resolved: (None, PLAYER_NOT_SET_ERROR)
+        - If player not found in DB: (PlayerLookupResult with is_found=False, error_message)
+        - If player found: (PlayerLookupResult with data, None)
+    """
+    # Resolve the player input (from param or cache)
+    resolved_input = await resolve_player_input(discord_user_id, player_input)
+    
+    if not resolved_input:
+        return None, PLAYER_NOT_SET_ERROR
+    
+    # Look up in database
+    player_id, player_name = await find_player_by_id_or_name(conn, resolved_input)
+    
+    result = PlayerLookupResult(
+        player_id=player_id,
+        player_name=player_name,
+        original_input=resolved_input
+    )
+    
+    if not result.is_found:
+        return result, player_not_found_error(resolved_input)
+    
+    return result, None
 
 # S3 configuration
 S3_BUCKET_NAME = "stats-let-loose"
