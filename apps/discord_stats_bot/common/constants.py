@@ -120,6 +120,10 @@ SCORE_TYPE_CONFIG = {
     "combat": {
         "column": "combat_score",
         "display_name": "Combat Score"
+    },
+    "seeding": {
+        "column": "time_played",
+        "display_name": "Seeding Time"
     }
 }
 
@@ -128,10 +132,11 @@ SCORE_TYPE_CHOICES = [
     app_commands.Choice(name="Attack Score", value="attack"),
     app_commands.Choice(name="Defense Score", value="defense"),
     app_commands.Choice(name="Combat Score", value="combat"),
+    app_commands.Choice(name="Seeding Time", value="seeding"),
 ]
 
-SCORE_TYPE_VALID_VALUES = {"support", "attack", "defense", "combat"}
-SCORE_TYPE_DISPLAY_LIST = ["Support Score", "Attack Score", "Defense Score", "Combat Score"]
+SCORE_TYPE_VALID_VALUES = {"support", "attack", "defense", "combat", "seeding"}
+SCORE_TYPE_DISPLAY_LIST = ["Support Score", "Attack Score", "Defense Score", "Combat Score", "Seeding Time"]
 
 # =============================================================================
 # Performance Stat Type Configuration

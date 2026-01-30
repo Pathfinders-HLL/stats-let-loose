@@ -128,6 +128,12 @@ from apps.discord_stats_bot.common.monospace_table_builder import (
     DEFAULT_COMPACT_VIEW_PLAYERS,
 )
 
+# Shared formatting utilities
+from apps.discord_stats_bot.common.shared import (
+    format_time_seconds,
+    format_date,
+)
+
 __all__ = [
     # Database
     'get_readonly_db_pool',
@@ -216,4 +222,7 @@ __all__ = [
     'format_stat_monospace_table',
     'build_compact_leaderboard_embed',
     'DEFAULT_COMPACT_VIEW_PLAYERS',
+    # Shared formatting utilities
+    'format_time_seconds',
+    'format_date',
 ]

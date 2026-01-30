@@ -49,6 +49,22 @@ CREATE INDEX idx_match_history_player_count
 ON pathfinder_stats.match_history(player_count)
 WHERE player_count >= 60;
 
+-- Optimize: Seeding match filtering (2-59 players)
+-- Used in: /player contributions seeding, /leaderboard contributions seeding
+-- This partial index efficiently filters matches in the seeding range
+DROP INDEX IF EXISTS pathfinder_stats.idx_match_history_player_count_seeding;
+CREATE INDEX idx_match_history_player_count_seeding
+ON pathfinder_stats.match_history(match_id)
+WHERE player_count > 1 AND player_count < 60;
+
+-- Optimize: Seeding matches with time filtering
+-- Used in: Seeding queries with time range filters (e.g., "last 30 days")
+-- Composite index supports both time filtering and seeding range
+DROP INDEX IF EXISTS pathfinder_stats.idx_match_history_seeding_time;
+CREATE INDEX idx_match_history_seeding_time
+ON pathfinder_stats.match_history(start_time DESC, match_id)
+WHERE player_count > 1 AND player_count < 60;
+
 -- ============================================================================
 -- SECTION 2: Core indexes for player_match_stats
 -- ============================================================================
@@ -87,6 +103,15 @@ DROP INDEX IF EXISTS pathfinder_stats.idx_player_match_stats_player_id_combat_sc
 CREATE INDEX idx_player_match_stats_player_id_combat_score 
 ON pathfinder_stats.player_match_stats(player_id, combat_score DESC) 
 WHERE combat_score > 0;
+
+-- Optimize: /player contributions seeding - orders by time_played DESC
+-- Used in: Player-specific seeding queries that need to order by time played
+-- This index supports filtering by player_id and ordering by time_played
+-- Also supports /leaderboard contributions seeding GROUP BY aggregations
+DROP INDEX IF EXISTS pathfinder_stats.idx_player_match_stats_player_id_time_played_seeding;
+CREATE INDEX idx_player_match_stats_player_id_time_played_seeding
+ON pathfinder_stats.player_match_stats(player_id, time_played DESC)
+WHERE time_played > 0;
 
 -- Optimize: Infantry kills aggregation for Pathfinder leaderboards (SUM GROUP BY player_id)
 DROP INDEX IF EXISTS pathfinder_stats.idx_player_match_stats_player_id_infantry_kills;
@@ -240,6 +265,12 @@ COMMENT ON INDEX pathfinder_stats.idx_match_history_qualified_matches IS
 COMMENT ON INDEX pathfinder_stats.idx_match_history_player_count IS
 'Index for efficient filtering by player_count for quality match criteria';
 
+COMMENT ON INDEX pathfinder_stats.idx_match_history_player_count_seeding IS
+'Partial index for efficient filtering of seeding matches (2-59 players)';
+
+COMMENT ON INDEX pathfinder_stats.idx_match_history_seeding_time IS
+'Composite index for seeding queries with time filtering (WHERE player_count 2-59 AND start_time >= X)';
+
 COMMENT ON INDEX pathfinder_stats.idx_match_history_map_name_lower IS 
 'Expression index for case-insensitive map_name filtering';
 
@@ -264,6 +295,9 @@ COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_total_deaths 
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_combat_score IS 
 'Composite index for /player contributions and /leaderboard contributions commands';
+
+COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_time_played_seeding IS
+'Composite index for seeding queries: /player contributions (ORDER BY time_played DESC) and /leaderboard contributions (GROUP BY player_id aggregation)';
 
 COMMENT ON INDEX pathfinder_stats.idx_player_match_stats_player_id_infantry_kills IS 
 'Composite index for infantry kills aggregation in Pathfinder leaderboards';

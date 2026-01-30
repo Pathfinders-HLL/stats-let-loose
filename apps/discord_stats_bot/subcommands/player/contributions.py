@@ -7,7 +7,6 @@ import time
 
 import discord
 
-from datetime import datetime
 from typing import List
 from discord import app_commands
 from tabulate import tabulate
@@ -26,6 +25,8 @@ from apps.discord_stats_bot.common import (
     SCORE_TYPE_CONFIG,
     SCORE_TYPE_VALID_VALUES,
     SCORE_TYPE_DISPLAY_LIST,
+    format_time_seconds,
+    format_date,
 )
 
 logger = logging.getLogger(__name__)
@@ -107,6 +108,12 @@ def register_contributions_subcommand(player_group: app_commands.Group, channel_
             query_params = [player_id] + base_query_params
                     
             escaped_column = escape_sql_identifier(score_column)
+            
+            # Special handling for seeding: filter by player count (2-59 players)
+            seeding_filter = ""
+            if score_type_lower == "seeding":
+                seeding_filter = "AND mh.player_count > 1 AND mh.player_count < 60"
+            
             query = f"""
                 SELECT
                     pms.match_id,
@@ -121,6 +128,7 @@ def register_contributions_subcommand(player_group: app_commands.Group, channel_
                     ON pms.match_id = mh.match_id
                 WHERE pms.player_id = $1
                     {time_filter}
+                    {seeding_filter}
                     AND pms.{escaped_column} > 0
                 ORDER BY pms.{escaped_column} DESC
                 LIMIT 25
@@ -140,6 +148,9 @@ def register_contributions_subcommand(player_group: app_commands.Group, channel_
 
             display_player_name = found_player_name if found_player_name else player
             
+            # Format score differently for seeding (time) vs other scores
+            format_score = format_time_seconds if score_type_lower == "seeding" else lambda x: str(int(x))
+            
             table_data = []
             for rank, row in enumerate(results, 1):
                 score = int(row['score'])
@@ -147,16 +158,12 @@ def register_contributions_subcommand(player_group: app_commands.Group, channel_
                 deaths = int(row['total_deaths'])
                 kdr = float(row['kdr'])
 
-                start_time_val = row['start_time']
-                if isinstance(start_time_val, datetime):
-                    start_time_str = start_time_val.strftime("%Y-%m-%d")
-                else:
-                    start_time_str = str(start_time_val)
+                start_time_str = format_date(row['start_time'])
 
                 table_data.append([
                     rank,
                     row['map_name'],
-                    score,
+                    format_score(score),
                     kills,
                     deaths,
                     f"{kdr:.2f}",

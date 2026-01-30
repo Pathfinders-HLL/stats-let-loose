@@ -31,6 +31,7 @@ from apps.discord_stats_bot.common import (
     AGGREGATE_BY_VALID_VALUES,
     AGGREGATE_BY_DISPLAY_LIST,
     PATHFINDER_COLOR,
+    format_time_seconds,
 )
 from apps.discord_stats_bot.common.leaderboard_pagination import (
     send_paginated_leaderboard,
@@ -85,7 +86,12 @@ async def fetch_contributions_leaderboard(
             query_params.extend(pf_params)
         
         quality_match_filters = []
-        if is_average:
+        
+        # Special handling for seeding: filter by player count (2-59 players)
+        if score_type_lower == "seeding":
+            quality_match_filters.append("mh.player_count > 1 AND mh.player_count < 60")
+        elif is_average:
+            # For average mode with other score types, use quality match filters
             quality_match_filters.append("pms.time_played >= 2700")
             quality_match_filters.append("""pms.match_id IN (
                 SELECT match_id 
@@ -221,6 +227,8 @@ def register_contributions_subcommand(leaderboard_group: app_commands.Group, cha
             )
         
         def format_value(value):
+            if score_type_lower == "seeding":
+                return format_time_seconds(value)
             if is_average:
                 if abs(value - round(value)) < 0.001:
                     return f"{int(round(value)):,}"

@@ -7,7 +7,6 @@ import time
 
 import discord
 
-from datetime import datetime
 from typing import List
 from discord import app_commands
 from tabulate import tabulate
@@ -27,6 +26,7 @@ from apps.discord_stats_bot.common import (
     ORDER_BY_CONFIG,
     ORDER_BY_VALID_VALUES,
     ORDER_BY_DISPLAY_LIST,
+    format_date,
 )
 
 logger = logging.getLogger(__name__)
@@ -157,11 +157,7 @@ def register_maps_subcommand(player_group: app_commands.Group, channel_check=Non
                 kdr = float(row['kdr'])
                 kpm = float(row['kpm'])
 
-                start_time_val = row['start_time']
-                if isinstance(start_time_val, datetime):
-                    start_time_str = start_time_val.strftime("%Y-%m-%d")
-                else:
-                    start_time_str = str(start_time_val)
+                start_time_str = format_date(row['start_time'])
 
                 table_data.append([
                     kills,
