@@ -228,3 +228,87 @@ ORDER_BY_CHOICES = [
 
 ORDER_BY_VALID_VALUES = {"kills", "kdr", "kpm"}
 ORDER_BY_DISPLAY_LIST = ["Kills", "KDR", "KPM"]
+
+# =============================================================================
+# Pathfinder Leaderboard Configuration
+# =============================================================================
+
+# Match quality thresholds for leaderboards
+MIN_MATCH_DURATION_SECONDS = 2700  # 45 minutes (same as MIN_PLAY_TIME_SECONDS)
+MIN_MATCHES_FOR_AGGREGATE = 5  # Minimum matches for aggregate stats
+
+# Pagination settings
+TOP_PLAYERS_LIMIT = 150  # Top 150 players per stat
+PLAYERS_PER_PAGE = 25    # 25 players per page = 6 pages
+
+# Timeframe options for leaderboard filtering
+TIMEFRAME_OPTIONS = {
+    "1d": {"days": 1, "label": "Last 24 Hours"},
+    "7d": {"days": 7, "label": "Last 7 Days"},
+    "30d": {"days": 30, "label": "Last 30 Days"},
+    "all": {"days": 0, "label": "All Time"},
+}
+
+# Stat configuration for building embeds
+LEADERBOARD_STAT_CONFIGS = [
+    {
+        "key": "infantry_kills",
+        "title": "🎯 Most Infantry Kills",
+        "compact_title": "🎯 Highest Kills",
+        "value_label": "Kills",
+        "value_abbrev": "Tot",  # 3-char abbreviation for compact view
+        "color": PATHFINDER_COLOR,
+        "value_format": "int",
+        "footer_note": f"Min {MIN_MATCHES_FOR_AGGREGATE} matches required"
+    },
+    {
+        "key": "avg_kd",
+        "title": "📊 Highest Average K/D",
+        "compact_title": "📊 Top Average K/D",
+        "value_label": "Avg K/D",
+        "value_abbrev": "K/D",
+        "color": PATHFINDER_COLOR,
+        "value_format": "float",
+        "footer_note": f"Min {MIN_MATCHES_FOR_AGGREGATE} matches, 45+ min each"
+    },
+    {
+        "key": "single_match_kills",
+        "title": "💥 Most Kills in Single Match",
+        "compact_title": "💥 Most Single Match Kills",
+        "value_label": "Kills",
+        "value_abbrev": "Kil",
+        "color": PATHFINDER_COLOR,
+        "value_format": "int",
+        "footer_note": "Best single match performance"
+    },
+    {
+        "key": "single_match_kd",
+        "title": "⚔️ Best K/D in Single Match",
+        "compact_title": "⚔️ Highest Single Match KDR",
+        "value_label": "K/D",
+        "value_abbrev": "K/D",
+        "color": PATHFINDER_COLOR,
+        "value_format": "float",
+        "footer_note": "Best single match K/D ratio"
+    },
+    {
+        "key": "k98_kills",
+        "title": "🔫 Most Karabiner 98k Kills",
+        "compact_title": "🔫 Most K98 Kills",
+        "value_label": "K98 Kills",
+        "value_abbrev": "K98",
+        "color": PATHFINDER_COLOR,
+        "value_format": "int",
+        "footer_note": "Total kills with Karabiner 98k"
+    },
+    {
+        "key": "obj_efficiency",
+        "title": "🏆 Highest Objective Efficiency",
+        "compact_title": "🏆 Objective Efficiency",
+        "value_label": "Pts/Min",
+        "value_abbrev": "Pts",
+        "color": PATHFINDER_COLOR,
+        "value_format": "float",
+        "footer_note": "(Offense + Defense) / Time Played per minute"
+    },
+]

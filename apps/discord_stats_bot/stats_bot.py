@@ -27,10 +27,8 @@ from apps.discord_stats_bot.common.player import (
     load_pathfinder_player_ids_from_s3,
 )
 from apps.discord_stats_bot.config import get_bot_config
-from apps.discord_stats_bot.jobs.pathfinder_leaderboards import (
-    setup_pathfinder_leaderboards_task,
-    LeaderboardView,
-)
+from apps.discord_stats_bot.jobs.pathfinder import setup_pathfinder_leaderboards_task
+from apps.discord_stats_bot.jobs.pathfinder.ui_components import LeaderboardView
 
 logging.basicConfig(
     level=logging.INFO,
