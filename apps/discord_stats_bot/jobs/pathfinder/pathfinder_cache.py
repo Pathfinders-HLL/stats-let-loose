@@ -239,8 +239,8 @@ async def refresh_leaderboard_cache():
 
 def _init_sql_logger():
     """Initialize the SQL logger in the queries module."""
-    from apps.discord_stats_bot.jobs.pathfinder import queries
-    queries.set_sql_logger(_log_sql_query_once)
+    from apps.discord_stats_bot.jobs.pathfinder.pathfinder_queries import set_sql_logger
+    set_sql_logger(_log_sql_query_once)
 
 
 # Initialize SQL logger when module is imported

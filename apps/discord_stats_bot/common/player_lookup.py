@@ -15,7 +15,7 @@ import boto3
 from dataclasses import dataclass
 from typing import Optional, Set, Tuple
 
-from apps.discord_stats_bot.common.cache import get_player_id
+from apps.discord_stats_bot.common.user_cache import get_player_id
 
 logger = logging.getLogger(__name__)
 
