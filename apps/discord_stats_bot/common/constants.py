@@ -151,13 +151,13 @@ STAT_TYPE_CONFIG = {
     },
     "kpm": {
         "column": "kills_per_minute",
-        "display_name": "KPM",
+        "display_name": "KPM (kills per minute)",
         "format": "{:.2f}",
         "is_streak": False
     },
     "dpm": {
         "column": "deaths_per_minute",
-        "display_name": "DPM (Deaths per Minute)",
+        "display_name": "DPM (deaths per minute)",
         "format": "{:.2f}",
         "is_streak": False
     },
