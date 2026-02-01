@@ -19,7 +19,7 @@ import aiohttp
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
-from apps.api_stats_ingestion.config import get_api_config
+from apps.api_stats_ingestion.ingestion_config import get_api_config
 from libs.db.config import get_db_config
 from libs.db.database import get_db_connection
 

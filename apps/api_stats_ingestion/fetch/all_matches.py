@@ -15,7 +15,7 @@ import aiohttp
 from pathlib import Path
 from typing import Any, Dict, List
 
-from apps.api_stats_ingestion.config import get_api_config
+from apps.api_stats_ingestion.ingestion_config import get_api_config
 
 ROOT_DIR = Path(__file__).parent
 DATA_DIR = Path(os.getenv("API_INGESTION_DATA_DIR", str(ROOT_DIR)))

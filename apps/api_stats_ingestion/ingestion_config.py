@@ -85,4 +85,3 @@ def get_api_config() -> APIConfig:
     if _api_config is None:
         _api_config = APIConfig()
     return _api_config
-

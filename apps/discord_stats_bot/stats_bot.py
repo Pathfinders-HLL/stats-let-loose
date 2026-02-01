@@ -23,12 +23,12 @@ from apps.discord_stats_bot.common import (
     close_db_pool,
     get_weapon_names,
 )
-from apps.discord_stats_bot.common.player import (
+from apps.discord_stats_bot.common.player_lookup import (
     load_pathfinder_player_ids_from_s3,
 )
-from apps.discord_stats_bot.config import get_bot_config
+from apps.discord_stats_bot.bot_config import get_bot_config
 from apps.discord_stats_bot.jobs.pathfinder import setup_pathfinder_leaderboards_task
-from apps.discord_stats_bot.jobs.pathfinder.ui_components import LeaderboardView
+from apps.discord_stats_bot.jobs.pathfinder.pathfinder_ui import LeaderboardView
 
 logging.basicConfig(
     level=logging.INFO,

@@ -14,7 +14,7 @@ import sys
 from apps.api_stats_ingestion.fetch.all_matches import main as fetch_all_matches_main
 from apps.api_stats_ingestion.fetch.match_history import main as fetch_match_history_main
 from apps.api_stats_ingestion.graceful_shutdown import setup_graceful_shutdown, should_shutdown
-from apps.api_stats_ingestion.load.db_match_results import main as update_db_main
+from apps.api_stats_ingestion.load.match_loader import main as update_db_main
 
 
 async def run_pipeline(

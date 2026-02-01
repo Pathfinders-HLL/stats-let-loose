@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple
 from tabulate import tabulate
 
-from apps.discord_stats_bot.common.cache import get_format_preference, DEFAULT_FORMAT
+from apps.discord_stats_bot.common.user_cache import get_format_preference, DEFAULT_FORMAT
 
 logger = logging.getLogger(__name__)
 

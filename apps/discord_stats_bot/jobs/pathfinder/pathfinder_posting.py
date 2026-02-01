@@ -20,16 +20,16 @@ from apps.discord_stats_bot.common.constants import (
     DEFAULT_COMPACT_VIEW_PLAYERS,
     LEADERBOARD_STAT_CONFIGS,
 )
-from apps.discord_stats_bot.config import get_bot_config
-from apps.discord_stats_bot.jobs.pathfinder.cache import (
+from apps.discord_stats_bot.bot_config import get_bot_config
+from apps.discord_stats_bot.jobs.pathfinder.pathfinder_cache import (
     get_leaderboard_cache,
     get_stored_message_state,
     _save_leaderboard_state,
     _clear_sql_logs,
     _write_sql_logs_to_file,
 )
-from apps.discord_stats_bot.jobs.pathfinder.queries import fetch_all_leaderboard_stats
-from apps.discord_stats_bot.jobs.pathfinder.ui_components import LeaderboardView
+from apps.discord_stats_bot.jobs.pathfinder.pathfinder_queries import fetch_all_leaderboard_stats
+from apps.discord_stats_bot.jobs.pathfinder.pathfinder_ui import LeaderboardView
 
 logger = logging.getLogger(__name__)
 

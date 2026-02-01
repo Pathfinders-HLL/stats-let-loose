@@ -13,12 +13,12 @@ import logging
 
 import discord
 
-from apps.discord_stats_bot.jobs.pathfinder.cache import (
+from apps.discord_stats_bot.jobs.pathfinder.pathfinder_cache import (
     refresh_leaderboard_cache,
     get_leaderboard_cache,
     _load_leaderboard_state,
 )
-from apps.discord_stats_bot.jobs.pathfinder.posting import (
+from apps.discord_stats_bot.jobs.pathfinder.pathfinder_posting import (
     post_pathfinder_leaderboards,
     set_bot_instance,
 )

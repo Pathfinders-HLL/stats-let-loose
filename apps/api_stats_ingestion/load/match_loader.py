@@ -22,7 +22,7 @@ import asyncio
 import gc
 import sys
 
-from apps.api_stats_ingestion.config import get_ingestion_config
+from apps.api_stats_ingestion.ingestion_config import get_ingestion_config
 from apps.api_stats_ingestion.graceful_shutdown import should_shutdown
 from apps.api_stats_ingestion.load.db import (
     insert_match_history,
@@ -34,7 +34,7 @@ from apps.api_stats_ingestion.load.db import (
     load_weapon_schemas,
     update_match_player_counts,
 )
-from apps.api_stats_ingestion.transform.match_results import (
+from apps.api_stats_ingestion.transform.match_transformer import (
     transform_match_history_data_batched,
     transform_player_stats_data_batched,
 )

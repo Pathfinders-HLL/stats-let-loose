@@ -19,8 +19,8 @@ from apps.discord_stats_bot.common.constants import (
     TIMEFRAME_OPTIONS,
     LEADERBOARD_STAT_CONFIGS,
 )
-from apps.discord_stats_bot.jobs.pathfinder.cache import get_cached_data
-from apps.discord_stats_bot.jobs.pathfinder.embeds import (
+from apps.discord_stats_bot.jobs.pathfinder.pathfinder_cache import get_cached_data
+from apps.discord_stats_bot.jobs.pathfinder.pathfinder_embeds import (
     _build_stat_embed_page,
     _get_total_pages,
 )

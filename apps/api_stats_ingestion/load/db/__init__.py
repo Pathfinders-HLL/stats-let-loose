@@ -28,7 +28,7 @@ from apps.api_stats_ingestion.load.db.insert_weapons import (
     insert_player_death_stats,
     insert_player_kill_stats,
 )
-from apps.api_stats_ingestion.load.db.utils import (
+from apps.api_stats_ingestion.load.db.db_utils import (
     load_weapon_schemas,
     map_weapon_to_column,
     update_match_player_counts,

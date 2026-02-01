@@ -18,7 +18,7 @@ from apps.discord_stats_bot.common.database import (
 )
 
 # Player utilities
-from apps.discord_stats_bot.common.player import (
+from apps.discord_stats_bot.common.player_lookup import (
     find_player_by_id_or_name,
     get_pathfinder_player_ids,
     resolve_player_input,
@@ -29,7 +29,7 @@ from apps.discord_stats_bot.common.player import (
 )
 
 # Caching (player IDs and format preferences)
-from apps.discord_stats_bot.common.cache import (
+from apps.discord_stats_bot.common.user_cache import (
     get_player_id,
     set_player_id,
     clear_player_id,

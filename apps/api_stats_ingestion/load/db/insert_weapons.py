@@ -8,7 +8,7 @@ from apps.api_stats_ingestion.load.db.checks import (
     check_existing_player_death_ids,
     check_existing_player_kill_ids,
 )
-from apps.api_stats_ingestion.load.db.utils import map_weapon_to_column
+from apps.api_stats_ingestion.load.db.db_utils import map_weapon_to_column
 
 
 async def insert_player_kill_stats(

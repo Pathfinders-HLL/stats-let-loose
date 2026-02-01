@@ -180,8 +180,8 @@ async def refresh_leaderboard_cache():
     global _leaderboard_cache
     
     # Import here to avoid circular imports
-    from apps.discord_stats_bot.jobs.pathfinder.queries import fetch_all_leaderboard_stats
-    from apps.discord_stats_bot.jobs.pathfinder.embeds import build_leaderboard_embeds
+    from apps.discord_stats_bot.jobs.pathfinder.pathfinder_queries import fetch_all_leaderboard_stats
+    from apps.discord_stats_bot.jobs.pathfinder.pathfinder_embeds import build_leaderboard_embeds
     
     try:
         logger.info("Starting leaderboard cache refresh...")

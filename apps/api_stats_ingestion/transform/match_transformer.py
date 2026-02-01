@@ -24,7 +24,7 @@ try:
 except ImportError:
     import json
 
-from apps.api_stats_ingestion.transform.utils import (
+from apps.api_stats_ingestion.transform.transform_utils import (
     calculate_duration,
     calculate_winning_team,
     parse_timestamp,
@@ -594,4 +594,3 @@ def _extract_player_stat_data(
         "spa_deaths": spa_deaths,
         "raw_info": player_stat  # Store as dict for JSONB - database driver will handle conversion
     }
-
