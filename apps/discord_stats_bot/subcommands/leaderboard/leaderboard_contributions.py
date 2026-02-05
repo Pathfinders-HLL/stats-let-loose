@@ -68,8 +68,11 @@ async def fetch_contributions_leaderboard(
         param_num = 1
         query_params = []
         
+        # Check if we need match_history join (for time filter or seeding filters)
+        needs_match_history = bool(base_query_params) or score_type_lower == "seeding"
+        
         from_clause, _ = build_from_clause_with_time_filter(
-            "pathfinder_stats.player_match_stats", "pms", bool(base_query_params)
+            "pathfinder_stats.player_match_stats", "pms", needs_match_history
         )
         
         time_where = ""
