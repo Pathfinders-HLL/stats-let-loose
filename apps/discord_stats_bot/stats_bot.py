@@ -107,7 +107,7 @@ async def on_ready():
             dev_guild = discord.Object(id=dev_guild_id)
 
             # 1. Clear guild commands (prevents stale registrations)
-            await bot.tree.clear_commands(guild=dev_guild)
+            bot.tree.clear_commands(guild=dev_guild)
 
             # 2. Copy global commands into the guild
             bot.tree.copy_global_to(guild=dev_guild)
