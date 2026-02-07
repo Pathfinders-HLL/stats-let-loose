@@ -1,6 +1,5 @@
 #!/bin/bash
-# Smart deployment script using Docker Compose's built-in change detection
-# Docker automatically detects build context changes and only rebuilds what's needed
+# Smart deployment script that only rebuilds and restarts services when their code changes
 
 set -e
 
@@ -18,6 +17,7 @@ NC='\033[0m' # No Color
 # Navigate to docker directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 DOCKER_DIR="$SCRIPT_DIR/../docker"
+REPO_ROOT="$SCRIPT_DIR/../.."
 cd "$DOCKER_DIR"
 
 # Check if Docker is installed
@@ -33,24 +33,224 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-echo -e "${BLUE}Building services (Docker will skip unchanged layers)...${NC}"
+# File to store deployment state
+STATE_FILE="$DOCKER_DIR/.deployment-state"
+
+# Function to compute hash of directory contents
+compute_dir_hash() {
+    local dir="$1"
+    if [ -d "$dir" ]; then
+        find "$dir" -type f \( -name "*.py" -o -name "*.txt" -o -name "*.sql" -o -name "*.yml" -o -name "*.yaml" -o -name "*.json" -o -name "*.sh" -o -name "Dockerfile*" \) -print0 2>/dev/null | \
+            sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1
+    else
+        echo "none"
+    fi
+}
+
+# Function to compute hash of a single file
+compute_file_hash() {
+    local file="$1"
+    if [ -f "$file" ]; then
+        sha256sum "$file" 2>/dev/null | cut -d' ' -f1
+    else
+        echo "none"
+    fi
+}
+
+# Function to get stored hash for a service
+get_stored_hash() {
+    local service="$1"
+    if [ -f "$STATE_FILE" ]; then
+        grep "^${service}=" "$STATE_FILE" 2>/dev/null | cut -d'=' -f2 || echo "none"
+    else
+        echo "none"
+    fi
+}
+
+# Function to save hash for a service
+save_hash() {
+    local service="$1"
+    local hash="$2"
+    
+    touch "$STATE_FILE"
+    grep -v "^${service}=" "$STATE_FILE" > "${STATE_FILE}.tmp" 2>/dev/null || true
+    echo "${service}=${hash}" >> "${STATE_FILE}.tmp"
+    mv "${STATE_FILE}.tmp" "$STATE_FILE"
+
+    # If running under sudo, ensure the original user can write state file
+    if [ -n "$SUDO_USER" ]; then
+        chown "$SUDO_USER":"$SUDO_USER" "$STATE_FILE" 2>/dev/null || true
+    fi
+}
+
+# Function to check if image exists
+image_exists() {
+    local service="$1"
+    docker compose images -q "$service" 2>/dev/null | grep -q . && return 0 || return 1
+}
+
+echo -e "${BLUE}Analyzing which services need updates...${NC}"
 echo ""
 
-# Build images - Docker BuildKit automatically:
-# 1. Uses layer cache for unchanged files
-# 2. Only rebuilds layers that changed
-# 3. Reuses base image and dependency layers
-docker compose build
+# Array to track services that need building/recreating
+declare -a SERVICES_TO_BUILD
+declare -a SERVICES_TO_RECREATE
+RECREATE_ALL=false
+RECREATE_POSTGRES=false
+
+# Check API Ingestion Service
+API_HASH=$(compute_dir_hash "$REPO_ROOT/apps/api_stats_ingestion")_$(compute_dir_hash "$REPO_ROOT/libs")_$(compute_file_hash "$DOCKER_DIR/Dockerfile.api-ingestion")
+API_STORED=$(get_stored_hash "stats-api-ingestion")
+
+if [ "$API_HASH" != "$API_STORED" ] || ! image_exists "stats-api-ingestion"; then
+    SERVICES_TO_BUILD+=("stats-api-ingestion")
+    echo -e "${YELLOW}✓ stats-api-ingestion needs rebuild${NC}"
+else
+    echo -e "${GREEN}✓ stats-api-ingestion is up to date${NC}"
+fi
+
+# Check Discord Bot Service
+DISCORD_HASH=$(compute_dir_hash "$REPO_ROOT/apps/discord_stats_bot")_$(compute_dir_hash "$REPO_ROOT/libs")_$(compute_file_hash "$DOCKER_DIR/Dockerfile.discord-bot")
+DISCORD_STORED=$(get_stored_hash "discord-stats-bot")
+
+if [ "$DISCORD_HASH" != "$DISCORD_STORED" ] || ! image_exists "discord-stats-bot"; then
+    SERVICES_TO_BUILD+=("discord-stats-bot")
+    echo -e "${YELLOW}✓ discord-stats-bot needs rebuild${NC}"
+else
+    echo -e "${GREEN}✓ discord-stats-bot is up to date${NC}"
+fi
+
+# Check deploy config changes (compose/.env) that require recreation
+DEPLOY_CONFIG_HASH=$(compute_file_hash "$DOCKER_DIR/docker-compose.yml")_$(compute_file_hash "$DOCKER_DIR/.env")
+DEPLOY_CONFIG_STORED=$(get_stored_hash "deploy-config")
+
+if [ "$DEPLOY_CONFIG_HASH" != "$DEPLOY_CONFIG_STORED" ]; then
+    RECREATE_ALL=true
+    echo -e "${YELLOW}✓ docker compose/.env changed - will recreate services${NC}"
+else
+    echo -e "${GREEN}✓ docker compose/.env unchanged${NC}"
+fi
+
+# Check Postgres config/init changes
+POSTGRES_HASH=$(compute_dir_hash "$REPO_ROOT/sql")_$(compute_file_hash "$DOCKER_DIR/check-and-create-tables.sh")_$(compute_file_hash "$DOCKER_DIR/postgres-entrypoint.sh")_$(compute_file_hash "$DOCKER_DIR/ensure-postgres-config.sh")_$(compute_file_hash "$DOCKER_DIR/postgresql.conf")
+POSTGRES_STORED=$(get_stored_hash "postgres-config")
+
+if [ "$POSTGRES_HASH" != "$POSTGRES_STORED" ]; then
+    RECREATE_POSTGRES=true
+    echo -e "${YELLOW}✓ postgres config/init changed - will recreate postgres${NC}"
+else
+    echo -e "${GREEN}✓ postgres config/init unchanged${NC}"
+fi
 
 echo ""
-echo -e "${BLUE}Updating services...${NC}"
+echo "=========================================="
+
+# If no services need building or recreating
+if [ ${#SERVICES_TO_BUILD[@]} -eq 0 ] && [ "$RECREATE_ALL" = false ] && [ "$RECREATE_POSTGRES" = false ]; then
+    echo -e "${GREEN}All services are up to date!${NC}"
+    echo ""
+    
+    # Just ensure services are running (start if stopped, but never recreate)
+    echo "Ensuring all services are running..."
+    docker compose start 2>/dev/null || docker compose up -d
+    
+    echo ""
+    echo "Service status:"
+    docker compose ps
+    
+    echo ""
+    echo -e "${GREEN}Deployment completed - no changes needed!${NC}"
+    exit 0
+fi
+
+# Build only the services that need updates
+echo -e "${BLUE}Building ${#SERVICES_TO_BUILD[@]} service(s)...${NC}"
 echo ""
 
-# Start/update services - Docker Compose automatically:
-# 1. Only recreates containers if their image ID changed
-# 2. Leaves unchanged containers running (no restart)
-# 3. Starts any stopped services
-docker compose up -d
+for service in "${SERVICES_TO_BUILD[@]}"; do
+    echo -e "${YELLOW}Building $service...${NC}"
+    docker compose build "$service"
+done
+
+# Save new hashes
+if [[ " ${SERVICES_TO_BUILD[@]} " =~ " stats-api-ingestion " ]]; then
+    save_hash "stats-api-ingestion" "$API_HASH"
+fi
+
+if [[ " ${SERVICES_TO_BUILD[@]} " =~ " discord-stats-bot " ]]; then
+    save_hash "discord-stats-bot" "$DISCORD_HASH"
+fi
+
+# Save config hashes
+save_hash "deploy-config" "$DEPLOY_CONFIG_HASH"
+save_hash "postgres-config" "$POSTGRES_HASH"
+
+echo ""
+echo -e "${BLUE}Restarting updated services...${NC}"
+echo ""
+
+# Restart only the services that were rebuilt (recreates containers with new images)
+for service in "${SERVICES_TO_BUILD[@]}"; do
+    echo -e "${YELLOW}Restarting $service...${NC}"
+    docker compose up -d "$service"
+done
+
+# Recreate services if compose/.env changed
+if [ "$RECREATE_ALL" = true ]; then
+    SERVICES_TO_RECREATE=("postgres" "stats-api-ingestion" "discord-stats-bot")
+fi
+
+# Recreate postgres if config/init changed
+if [ "$RECREATE_POSTGRES" = true ]; then
+    if ! [[ " ${SERVICES_TO_RECREATE[@]} " =~ " postgres " ]]; then
+        SERVICES_TO_RECREATE+=("postgres")
+    fi
+fi
+
+# Apply recreates for services not already rebuilt
+for service in "${SERVICES_TO_RECREATE[@]}"; do
+    if ! [[ " ${SERVICES_TO_BUILD[@]} " =~ " $service " ]]; then
+        echo -e "${YELLOW}Recreating $service...${NC}"
+        docker compose up -d --force-recreate "$service"
+    fi
+done
+
+# Ensure unchanged services are running (start if stopped, but never recreate)
+echo ""
+echo -e "${BLUE}Ensuring unchanged services are running...${NC}"
+
+# Function to safely start a service without recreating
+safe_start_service() {
+    local service=$1
+    # Try to start existing container first (won't recreate)
+    if docker compose start "$service" 2>/dev/null; then
+        return 0
+    fi
+    # If start failed, container might not exist - create it but don't recreate if exists
+    docker compose up -d --no-recreate "$service" 2>/dev/null || true
+}
+
+# Start postgres if stopped (never recreate)
+if ! [[ " ${SERVICES_TO_RECREATE[@]} " =~ " postgres " ]]; then
+    safe_start_service "postgres"
+fi
+
+# Start other unchanged services if stopped
+for service in "stats-api-ingestion" "discord-stats-bot"; do
+    if ! [[ " ${SERVICES_TO_BUILD[@]} " =~ " $service " ]] && ! [[ " ${SERVICES_TO_RECREATE[@]} " =~ " $service " ]]; then
+        safe_start_service "$service"
+    fi
+done
+
+# Restart dependents if postgres was recreated
+if [[ " ${SERVICES_TO_RECREATE[@]} " =~ " postgres " ]]; then
+    for service in "stats-api-ingestion" "discord-stats-bot"; do
+        if ! [[ " ${SERVICES_TO_BUILD[@]} " =~ " $service " ]] && ! [[ " ${SERVICES_TO_RECREATE[@]} " =~ " $service " ]]; then
+            echo -e "${YELLOW}Restarting dependent $service after postgres change...${NC}"
+            docker compose up -d "$service"
+        fi
+    done
+fi
 
 echo ""
 echo -e "${BLUE}Waiting for services to be healthy...${NC}"
@@ -189,13 +389,19 @@ echo "=========================================="
 echo -e "${GREEN}Smart deployment completed!${NC}"
 echo "=========================================="
 echo ""
-echo "Docker Compose automatically:"
-echo "  ✓ Rebuilt only services with changed code (using BuildKit cache)"
-echo "  ✓ Recreated only containers with new images"
-echo "  ✓ Left unchanged services running without restart"
+if [ ${#SERVICES_TO_BUILD[@]} -eq 0 ]; then
+    echo "Summary:"
+    echo "  ✓ No code changes detected"
+    echo "  ✓ All services kept running (no restarts)"
+else
+    echo "Summary:"
+    echo "  ✓ Rebuilt and restarted: ${SERVICES_TO_BUILD[@]}"
+    echo "  ✓ Unchanged services: kept running (no restart)"
+    echo "  ✓ PostgreSQL: never restarted"
+fi
 echo ""
 echo "Useful commands:"
 echo "  View logs:        docker compose logs -f [service]"
 echo "  Stop services:    docker compose down"
 echo "  Service status:   docker compose ps"
-echo "  Force rebuild:    docker compose build --no-cache && docker compose up -d"
+echo "  Force rebuild:    rm .deployment-state && bash smart-deploy.sh"
