@@ -59,6 +59,10 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.api-ingestion
+      target: final
+      cache_from:
+        - statsletloose-api-ingestion:latest
+    image: statsletloose-api-ingestion:latest
     container_name: statsletloose-api-ingestion
     environment:
       POSTGRES_HOST: postgres
@@ -77,6 +81,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep -v grep | grep -q 'python -m apps.api_stats_ingestion.ingestion_cli' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
       - statsletloose-network
     restart: unless-stopped
@@ -124,6 +134,10 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.discord-bot
+      target: final
+      cache_from:
+        - statsletloose-discord-bot:latest
+    image: statsletloose-discord-bot:latest
     container_name: statsletloose-discord-bot
     environment:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
@@ -148,6 +162,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep -v grep | grep -q 'python /app/apps/discord_stats_bot/stats_bot.py' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     networks:
       - statsletloose-network
     restart: unless-stopped

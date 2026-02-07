@@ -166,6 +166,11 @@ jobs:
             apps/ \
             libs/ \
             ${{ secrets.LIGHTSAIL_USER }}@${{ env.LIGHTSAIL_HOST }}:/home/${{ secrets.LIGHTSAIL_USER }}/stats-let-loose/
+          
+          # Make deployment scripts executable
+          ssh -i ~/.ssh/lightsail_key ${{ secrets.LIGHTSAIL_USER }}@${{ env.LIGHTSAIL_HOST }} << 'EOF'
+            chmod +x ~/stats-let-loose/infra/deploy/*.sh
+          EOF
 
       - name: Create .env file on Lightsail instance
         run: |
@@ -220,17 +225,10 @@ jobs:
               exit 1
             fi
             
-            # Use sudo for docker commands to avoid permission issues
-            sudo docker compose build --no-cache
-            
-            # Stop existing containers (without removing volumes)
-            sudo docker compose down
-            
-            # Start services
-            sudo docker compose up -d
-            
-            # Show logs
-            sudo docker compose logs --tail=50
+            # Run smart deployment script
+            echo "Running smart deployment (only rebuilds changed services)..."
+            cd ~/stats-let-loose/infra/deploy
+            sudo bash smart-deploy.sh
           EOF
 
       - name: Verify deployment

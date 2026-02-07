@@ -1,11 +1,11 @@
 #!/bin/bash
-# Deployment script for AWS Lightsail
-# This script can be run manually on the Lightsail instance
+# Manual deployment script for AWS Lightsail
+# Leverages Docker's built-in BuildKit caching and change detection
 
 set -e
 
 echo "=========================================="
-echo "StatsFinder Deployment Script"
+echo "StatsFinder Manual Deployment Script"
 echo "=========================================="
 
 # Check if Docker is installed
@@ -20,12 +20,11 @@ if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/
     exit 1
 fi
 
-# Navigate to docker directory
+# Navigate to deployment directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$SCRIPT_DIR/../docker"
 
 # Check if .env file exists
-if [ ! -f .env ]; then
+if [ ! -f "$SCRIPT_DIR/../docker/.env" ]; then
     echo "Warning: .env file not found!"
     echo "Please create a .env file with required environment variables."
     echo "See infra/docker/README.md for details."
@@ -36,32 +35,24 @@ if [ ! -f .env ]; then
     fi
 fi
 
-echo "Building Docker images..."
-docker compose build
-
-echo "Stopping existing containers..."
-docker compose down
-
-echo "Starting services..."
-docker compose up -d
-
-echo "Waiting for services to be healthy..."
-sleep 10
-
-echo "Service status:"
-docker compose ps
-
 echo ""
-echo "Recent logs:"
-docker compose logs --tail=30
+echo "Running smart deployment..."
+echo "Docker will automatically:"
+echo "  - Use BuildKit to cache unchanged layers"
+echo "  - Only recreate containers with new images"
+echo "  - Leave unchanged services running"
+echo ""
+
+# Run the smart deployment script
+bash "$SCRIPT_DIR/smart-deploy.sh"
 
 echo ""
 echo "=========================================="
-echo "Deployment completed!"
+echo "Manual deployment completed!"
 echo "=========================================="
 echo ""
 echo "Useful commands:"
-echo "  View logs:        docker compose logs -f"
-echo "  Stop services:    docker compose down"
-echo "  Restart:          docker compose restart"
-echo "  Service status:   docker compose ps"
+echo "  View logs:        cd infra/docker && docker compose logs -f"
+echo "  Stop services:    cd infra/docker && docker compose down"
+echo "  Restart:          cd infra/deploy && bash deploy.sh"
+echo "  Force rebuild:    cd infra/docker && docker compose build --no-cache && docker compose up -d"
