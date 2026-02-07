@@ -101,11 +101,19 @@ async def on_ready():
     dev_guild_id = bot_config.dev_guild_id
     
     if dev_guild_id:
-        logger.info(f"Syncing commands to development guild {dev_guild_id}...")
+        logger.info(f"Force-syncing commands to development guild {dev_guild_id}...")
+
         try:
             dev_guild = discord.Object(id=dev_guild_id)
-            tree.copy_global_to(guild=dev_guild)
-            synced_guild = await tree.sync(guild=dev_guild)
+
+            # 1. Clear guild commands (prevents stale registrations)
+            await bot.tree.clear_commands(guild=dev_guild)
+
+            # 2. Copy global commands into the guild
+            bot.tree.copy_global_to(guild=dev_guild)
+
+            # 3. Sync the guild explicitly
+            synced_guild = await bot.tree.sync(guild=dev_guild)
             
             if synced_guild:
                 command_names = [cmd.name for cmd in synced_guild]
