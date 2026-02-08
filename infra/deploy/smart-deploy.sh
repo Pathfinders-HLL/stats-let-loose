@@ -120,15 +120,15 @@ else
     echo -e "${GREEN}✓ discord-stats-bot is up to date${NC}"
 fi
 
-# Check deploy config changes (compose/.env) that require recreation
-DEPLOY_CONFIG_HASH=$(compute_file_hash "$DOCKER_DIR/docker-compose.yml")_$(compute_file_hash "$DOCKER_DIR/.env")
+# Check deploy config changes (compose only) that require recreation.
+DEPLOY_CONFIG_HASH=$(compute_file_hash "$DOCKER_DIR/docker-compose.yml")
 DEPLOY_CONFIG_STORED=$(get_stored_hash "deploy-config")
 
 if [ "$DEPLOY_CONFIG_HASH" != "$DEPLOY_CONFIG_STORED" ]; then
     RECREATE_ALL=true
-    echo -e "${YELLOW}✓ docker compose/.env changed - will recreate services${NC}"
+    echo -e "${YELLOW}✓ docker-compose.yml changed - will recreate services${NC}"
 else
-    echo -e "${GREEN}✓ docker compose/.env unchanged${NC}"
+    echo -e "${GREEN}✓ docker-compose.yml unchanged${NC}"
 fi
 
 # Check Postgres config/init changes
@@ -195,7 +195,7 @@ for service in "${SERVICES_TO_BUILD[@]}"; do
     docker compose up -d "$service"
 done
 
-# Recreate services if compose/.env changed
+# Recreate services if docker-compose.yml changed
 if [ "$RECREATE_ALL" = true ]; then
     SERVICES_TO_RECREATE=("postgres" "stats-api-ingestion" "discord-stats-bot")
 fi
