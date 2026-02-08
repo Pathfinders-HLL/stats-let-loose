@@ -33,8 +33,8 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-# File to store deployment state
-STATE_FILE="$DOCKER_DIR/.deployment-state"
+# File to store deployment state (must be outside infra/docker so it isn't wiped when Gihub actionC copies infra/ to the server on deployments)
+STATE_FILE="$REPO_ROOT/.deployment-state"
 
 # Function to compute hash of directory contents
 compute_dir_hash() {
@@ -126,7 +126,11 @@ DEPLOY_CONFIG_STORED=$(get_stored_hash "deploy-config")
 
 if [ "$DEPLOY_CONFIG_HASH" != "$DEPLOY_CONFIG_STORED" ]; then
     RECREATE_ALL=true
-    echo -e "${YELLOW}✓ docker-compose.yml changed - will recreate services${NC}"
+    if [ "$DEPLOY_CONFIG_STORED" = "none" ]; then
+        echo -e "${YELLOW}✓ No previous deploy state (or state was reset) - will recreate services${NC}"
+    else
+        echo -e "${YELLOW}✓ docker-compose.yml changed - will recreate services${NC}"
+    fi
 else
     echo -e "${GREEN}✓ docker-compose.yml unchanged${NC}"
 fi
@@ -404,4 +408,4 @@ echo "Useful commands:"
 echo "  View logs:        docker compose logs -f [service]"
 echo "  Stop services:    docker compose down"
 echo "  Service status:   docker compose ps"
-echo "  Force rebuild:    rm .deployment-state && bash smart-deploy.sh"
+echo "  Force rebuild:    rm ../../.deployment-state && bash smart-deploy.sh   (from infra/deploy)"

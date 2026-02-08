@@ -141,6 +141,7 @@ fabric.properties
 # *.iml
 
 # User-added ignores
+.deployment-state
 __pycache__/
 util
 .idea
