@@ -184,6 +184,6 @@ def build_compact_leaderboard_embed(
     
     # Footer with timestamp
     unix_ts = int(updated_timestamp.timestamp())
-    embed.set_footer(text=f"Use Stats Let Loose slash commands to view advanced leaderboards and personal stats.")
+    embed.set_footer(text=f"View slash commands using `/help` to view advanced leaderboards/personal stats such as `/leaderboaard kills`")
     
     return embed
