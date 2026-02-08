@@ -3,6 +3,7 @@ Discord bot entry point with slash commands for player stats and leaderboards.
 """
 
 import logging
+import os
 import time
 
 import discord
@@ -30,6 +31,7 @@ from apps.discord_stats_bot.bot_config import get_bot_config
 from apps.discord_stats_bot.jobs.pathfinder import setup_pathfinder_leaderboards_task
 from apps.discord_stats_bot.jobs.pathfinder.pathfinder_ui import LeaderboardView
 from apps.discord_stats_bot.jobs.channel_cleanup import setup_channel_cleanup_task
+from apps.discord_stats_bot.health_check import READINESS_FILE
 
 logging.basicConfig(
     level=logging.INFO,
@@ -146,11 +148,21 @@ async def on_ready():
     setup_pathfinder_leaderboards_task(bot)
     setup_channel_cleanup_task(bot)
 
+    # Signal ready for healthcheck
+    try:
+        open(READINESS_FILE, "a").close()
+    except OSError as e:
+        logger.warning(f"Could not touch readiness file: {e}")
+
 
 @bot.event
 async def on_disconnect():
     """Clean up database connections on disconnect."""
     logger.info("Bot disconnected, closing database pool...")
+    try:
+        os.remove(READINESS_FILE)
+    except OSError:
+        pass
     await close_db_pool()
 
 
