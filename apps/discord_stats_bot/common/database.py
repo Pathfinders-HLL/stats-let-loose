@@ -16,6 +16,14 @@ logger = logging.getLogger(__name__)
 # Connection pool for async database operations
 _db_pool: Optional[asyncpg.Pool] = None
 
+# Pool for pathfinder leaderboard queries (longer command_timeout)
+_pathfinder_pool: Optional[asyncpg.Pool] = None
+
+# Default command timeout (seconds) for pathfinder leaderboard pool
+PATHFINDER_LEADERBOARD_COMMAND_TIMEOUT = int(
+    os.getenv("PATHFINDER_LEADERBOARD_COMMAND_TIMEOUT", "330")
+)
+
 
 async def get_readonly_db_pool() -> asyncpg.Pool:
     """
@@ -66,10 +74,68 @@ async def get_readonly_db_pool() -> asyncpg.Pool:
         raise ConnectionError(f"Failed to create database connection pool: {e}") from e
 
 
+async def get_pathfinder_leaderboard_pool() -> asyncpg.Pool:
+    """
+    Get or create the async PostgreSQL connection pool used only for
+    pathfinder leaderboard jobs (supports a higher command_timeout).
+    """
+    global _pathfinder_pool
+
+    if _pathfinder_pool is not None:
+        return _pathfinder_pool
+
+    db_config = get_db_config()
+    ro_user = os.getenv("POSTGRES_RO_USER")
+    ro_password = os.getenv("POSTGRES_RO_PASSWORD")
+
+    if not all([db_config.host, db_config.port, db_config.database, ro_user]):
+        missing = []
+        if not db_config.host:
+            missing.append("POSTGRES_HOST")
+        if not db_config.port:
+            missing.append("POSTGRES_PORT")
+        if not db_config.database:
+            missing.append("POSTGRES_DB")
+        if not ro_user:
+            missing.append("POSTGRES_RO_USER")
+        raise ValueError(f"Missing database config: {', '.join(missing)}")
+
+    try:
+        async def setup_connection(conn):
+            """Set up connection defaults."""
+            await conn.execute(
+                f"SET statement_timeout = '{PATHFINDER_LEADERBOARD_COMMAND_TIMEOUT}s'"
+            )
+
+        _pathfinder_pool = await asyncpg.create_pool(
+            host=db_config.host,
+            port=db_config.port,
+            database=db_config.database,
+            user=ro_user,
+            password=ro_password,
+            min_size=1,
+            max_size=4,
+            command_timeout=PATHFINDER_LEADERBOARD_COMMAND_TIMEOUT,
+            max_inactive_connection_lifetime=300,
+            setup=setup_connection,
+        )
+        logger.info(
+            "Created pathfinder leaderboard pool (command_timeout=%ss)",
+            PATHFINDER_LEADERBOARD_COMMAND_TIMEOUT,
+        )
+        return _pathfinder_pool
+    except Exception as e:
+        raise ConnectionError(f"Failed to create pathfinder database pool: {e}") from e
+
+
 async def close_db_pool() -> None:
-    """Close the database connection pool if open."""
-    global _db_pool
+    """Close the database connection pools if open."""
+    global _db_pool, _pathfinder_pool
     if _db_pool is not None:
         await _db_pool.close()
         _db_pool = None
         logger.info("Closed database connection pool")
+    if _pathfinder_pool is not None:
+        await _pathfinder_pool.close()
+        _pathfinder_pool = None
+        logger.info("Closed pathfinder leaderboard pool")

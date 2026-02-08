@@ -14,6 +14,7 @@ This module provides centralized access to shared functionality:
 # Database operations
 from apps.discord_stats_bot.common.database import (
     get_readonly_db_pool,
+    get_pathfinder_leaderboard_pool,
     close_db_pool,
 )
 
@@ -144,6 +145,7 @@ from apps.discord_stats_bot.common.shared import (
 __all__ = [
     # Database
     'get_readonly_db_pool',
+    'get_pathfinder_leaderboard_pool',
     'close_db_pool',
     # Player
     'find_player_by_id_or_name',

@@ -15,7 +15,7 @@ from asyncpg import exceptions as asyncpg_exceptions
 from typing import List, Dict, Any
 
 from apps.discord_stats_bot.common import (
-    get_readonly_db_pool,
+    get_pathfinder_leaderboard_pool,
     get_pathfinder_player_ids,
     escape_sql_identifier,
     create_time_filter_params,
@@ -706,7 +706,7 @@ async def fetch_all_leaderboard_stats(
     Returns:
         Dictionary with stat category keys and result lists
     """
-    pool = await get_readonly_db_pool()
+    pool = await get_pathfinder_leaderboard_pool()
     pathfinder_ids = list(get_pathfinder_player_ids())
     
     stats = {
