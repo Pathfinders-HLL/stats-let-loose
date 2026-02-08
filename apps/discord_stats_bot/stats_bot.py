@@ -242,7 +242,7 @@ async def help_command(interaction: discord.Interaction):
 **`/leaderboard performance`** - Top by stat
 - `stat_type` (required): KDR/KPM/DPM/Streaks
 **`/leaderboard contributions`** - Top by scores
-- `score_type` (required): Support/Attack/Defense/Combat
+- `score_type` (required): Support/Attack/Defense/Combat/Seeding
 
 ## Optional Parameters
 - `player`: ID/name (skip if set via `/profile setid`)
