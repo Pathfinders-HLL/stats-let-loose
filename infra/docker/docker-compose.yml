@@ -82,7 +82,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "ps aux | grep -v grep | grep -q 'python -m apps.api_stats_ingestion.ingestion_cli' || exit 1"]
+      test: ["CMD-SHELL", "ps aux | grep -v grep | grep -qE 'python -m apps.api_stats_ingestion.ingestion_cli| sleep ' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
