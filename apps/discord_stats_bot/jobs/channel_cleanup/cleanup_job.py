@@ -71,7 +71,7 @@ async def _is_message_protected(message: discord.Message, allowed_role_ids: set[
     return False
 
 
-@tasks.loop(minutes=1)
+@tasks.loop(minutes=5)
 async def cleanup_stats_channel():
     """Clean up non-protected messages from the stats channel."""
     global _bot_instance
@@ -98,43 +98,27 @@ async def cleanup_stats_channel():
             logger.error(f"Channel {stats_channel_id} is not a text channel")
             return
         
-        # Collect messages to delete
-        messages_to_delete: list[discord.Message] = []
-        
+        # Sync check for purge: True = delete this message. Mirrors _is_message_protected (protected = don't delete).
+        def should_delete(message: discord.Message) -> bool:
+            if _bot_instance is None:
+                return False  # Protect all if we can't verify (match original safety)
+            if message.author == _bot_instance.user:
+                return False  # Never delete bot's own messages
+            if not allowed_role_ids:
+                return True  # No allow-list: delete all non-bot messages
+            if isinstance(message.author, discord.Member):
+                author_role_ids = {r.id for r in message.author.roles}
+                if author_role_ids & allowed_role_ids:
+                    return False  # Author has an allow-listed role: keep
+            return True  # Not bot, no allow-listed role: delete
+
         logger.info(f"Scanning channel {channel.name} for messages to clean up...")
-        
-        async for message in channel.history(limit=100):
-            if not await _is_message_protected(message, allowed_role_ids):
-                messages_to_delete.append(message)
-        
-        if not messages_to_delete:
-            logger.info("No messages to clean up")
-            return
-        
-        # Delete messages
-        deleted_count = 0
-        failed_count = 0
-        
-        for message in messages_to_delete:
-            try:
-                await message.delete()
-                deleted_count += 1
-                logger.info(f"Deleted message {message.id} from {message.author}")
-            except discord.NotFound:
-                # Message was already deleted
-                pass
-            except discord.Forbidden:
-                logger.warning(f"No permission to delete message {message.id}")
-                failed_count += 1
-            except discord.HTTPException as e:
-                logger.warning(f"Failed to delete message {message.id}: {e}")
-                failed_count += 1
-        
-        if deleted_count > 0 or failed_count > 0:
-            logger.info(
-                f"Channel cleanup complete: {deleted_count} deleted, "
-                f"{failed_count} failed"
-            )
+
+        # purge() with bulk=True uses Discord's bulk delete API (1 request per batch of up to 100
+        # messages under 14 days old), avoiding per-channel rate limits (5 req/5 sec for single deletes)
+        deleted = await channel.purge(limit=100, check=should_delete, bulk=True)
+        if deleted:
+            logger.info(f"Channel cleanup complete: {len(deleted)} message(s) deleted")
             
     except Exception as e:
         logger.error(f"Error in channel cleanup task: {e}", exc_info=True)
