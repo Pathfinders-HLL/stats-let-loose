@@ -82,7 +82,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "ps aux | grep -v grep | grep -qE 'python -m apps.api_stats_ingestion.ingestion_cli| sleep ' || exit 1"]
+      test: ["CMD-SHELL", "python -m apps.api_stats_ingestion.health_check || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -109,6 +109,7 @@ services:
 
         handle_term() {
           echo "Received SIGTERM, forwarding to ingestion process..."
+          rm -f /tmp/api-ingestion-ready
           if [ "$$PYTHON_PID" != "0" ]; then
             kill -TERM "$$PYTHON_PID" 2>/dev/null
             wait "$$PYTHON_PID"
@@ -119,6 +120,7 @@ services:
         trap handle_term TERM INT
 
         echo "Starting API ingestion scheduler..."
+        touch /tmp/api-ingestion-ready
         while true; do
           echo "$$(date): Running API ingestion job..."
           cd /app && python -m apps.api_stats_ingestion.ingestion_cli --skip-existing-fetch &
