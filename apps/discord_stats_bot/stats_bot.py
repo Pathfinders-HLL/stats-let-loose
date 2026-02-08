@@ -29,6 +29,7 @@ from apps.discord_stats_bot.common.player_lookup import (
 from apps.discord_stats_bot.bot_config import get_bot_config
 from apps.discord_stats_bot.jobs.pathfinder import setup_pathfinder_leaderboards_task
 from apps.discord_stats_bot.jobs.pathfinder.pathfinder_ui import LeaderboardView
+from apps.discord_stats_bot.jobs.channel_cleanup import setup_channel_cleanup_task
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,6 +42,7 @@ DISCORD_TOKEN = bot_config.token
 ALLOWED_CHANNEL_IDS = bot_config.allowed_channel_ids
 
 intents = discord.Intents.default()
+intents.members = True  # Required for channel cleanup to check member roles
 
 
 async def get_prefix(bot, message):
@@ -142,6 +144,7 @@ async def on_ready():
     
     # Start scheduled tasks
     setup_pathfinder_leaderboards_task(bot)
+    setup_channel_cleanup_task(bot)
 
 
 @bot.event

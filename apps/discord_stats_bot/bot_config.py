@@ -63,6 +63,17 @@ class DiscordBotConfig:
         
         stats_channel_id_str = os.getenv("DISCORD_STATS_CHANNEL_ID")
         self.stats_channel_id: Optional[int] = int(stats_channel_id_str) if stats_channel_id_str else None
+        
+        # Parse allowed role IDs for channel cleanup (comma-separated list)
+        cleanup_allowed_roles_str = os.getenv("DISCORD_CLEANUP_ALLOWED_ROLE_IDS", "")
+        if cleanup_allowed_roles_str:
+            self.cleanup_allowed_role_ids: Set[int] = {
+                int(role_id.strip())
+                for role_id in cleanup_allowed_roles_str.split(",")
+                if role_id.strip()
+            }
+        else:
+            self.cleanup_allowed_role_ids: Set[int] = set()
     
     def __repr__(self) -> str:
         return (
@@ -70,7 +81,8 @@ class DiscordBotConfig:
             f"token=***, "
             f"allowed_channel_ids={self.allowed_channel_ids}, "
             f"dev_guild_id={self.dev_guild_id}, "
-            f"stats_channel_id={self.stats_channel_id})"
+            f"stats_channel_id={self.stats_channel_id}, "
+            f"cleanup_allowed_role_ids={self.cleanup_allowed_role_ids})"
         )
 
 
