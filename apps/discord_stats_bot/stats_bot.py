@@ -4,6 +4,7 @@ Discord bot entry point with slash commands for player stats and leaderboards.
 
 import logging
 import os
+import signal
 import time
 
 import discord
@@ -97,97 +98,105 @@ async def on_ready():
     
     await bot.wait_until_ready()
     
-    # Initialize caches
-    await initialize_cache()
-    await initialize_format_cache()
-
-    # Sync commands
-    dev_guild_id = bot_config.dev_guild_id
-    
-    if dev_guild_id:
-        logger.info(f"Force-syncing commands to development guild {dev_guild_id}...")
-
-        try:
-            dev_guild = discord.Object(id=dev_guild_id)
-
-            # 1. Clear guild commands (prevents stale registrations)
-            bot.tree.clear_commands(guild=dev_guild)
-
-            # 2. Copy global commands into the guild
-            bot.tree.copy_global_to(guild=dev_guild)
-
-            # 3. Sync the guild explicitly
-            synced_guild = await bot.tree.sync(guild=dev_guild)
-            
-            if synced_guild:
-                command_names = [cmd.name for cmd in synced_guild]
-                logger.info(f"Synced {len(synced_guild)} commands to guild: {', '.join(command_names)}")
-            else:
-                logger.warning("No commands were synced to development guild")
-        except Exception as e:
-            logger.error(f"Failed to sync to development guild: {e}", exc_info=True)
-    else:
-        logger.info("Syncing commands globally...")
-        try:
-            synced_global = await tree.sync()
-            
-            if synced_global:
-                command_names = [cmd.name for cmd in synced_global]
-                logger.info(f"Synced {len(synced_global)} commands globally: {', '.join(command_names)}")
-        except discord.HTTPException as e:
-            logger.warning(f"HTTP error while syncing globally: {e}", exc_info=True)
-        except Exception as e:
-            logger.warning(f"Failed to sync globally: {e}", exc_info=True)
-    
-    await bot.change_presence(activity=discord.Game(name="Use /help for commands"))
-    
-    # Register persistent views
-    bot.add_view(LeaderboardView())
-    
-    # Start scheduled tasks
-    setup_pathfinder_leaderboards_task(bot)
-    setup_channel_cleanup_task(bot)
-
-    # Signal ready for healthcheck
     try:
-        open(READINESS_FILE, "a").close()
-    except OSError as e:
-        logger.warning(f"Could not touch readiness file: {e}")
+        # Initialize caches
+        await initialize_cache()
+        await initialize_format_cache()
+
+        # Sync commands
+        dev_guild_id = bot_config.dev_guild_id
+        
+        if dev_guild_id:
+            logger.info(f"Force-syncing commands to development guild {dev_guild_id}...")
+
+            try:
+                dev_guild = discord.Object(id=dev_guild_id)
+
+                # 1. Clear guild commands (prevents stale registrations)
+                bot.tree.clear_commands(guild=dev_guild)
+
+                # 2. Copy global commands into the guild
+                bot.tree.copy_global_to(guild=dev_guild)
+
+                # 3. Sync the guild explicitly
+                synced_guild = await bot.tree.sync(guild=dev_guild)
+                
+                if synced_guild:
+                    command_names = [cmd.name for cmd in synced_guild]
+                    logger.info(f"Synced {len(synced_guild)} commands to guild: {', '.join(command_names)}")
+                else:
+                    logger.warning("No commands were synced to development guild")
+            except Exception as e:
+                logger.error(f"Failed to sync to development guild: {e}", exc_info=True)
+        else:
+            logger.info("Syncing commands globally...")
+            try:
+                synced_global = await tree.sync()
+                
+                if synced_global:
+                    command_names = [cmd.name for cmd in synced_global]
+                    logger.info(f"Synced {len(synced_global)} commands globally: {', '.join(command_names)}")
+            except discord.HTTPException as e:
+                logger.warning(f"HTTP error while syncing globally: {e}", exc_info=True)
+            except Exception as e:
+                logger.warning(f"Failed to sync globally: {e}", exc_info=True)
+        
+        await bot.change_presence(activity=discord.Game(name="Use /help for commands"))
+        
+        # Register persistent views
+        bot.add_view(LeaderboardView())
+        
+        # Start scheduled tasks
+        setup_pathfinder_leaderboards_task(bot)
+        setup_channel_cleanup_task(bot)
+
+        # Signal ready for healthcheck - only after everything succeeds
+        try:
+            open(READINESS_FILE, "a").close()
+            logger.info("Bot is fully ready - healthcheck file created")
+        except OSError as e:
+            logger.warning(f"Could not create readiness file: {e}")
+    
+    except Exception as e:
+        logger.error(f"Error during bot initialization: {e}", exc_info=True)
+        # Remove readiness file if initialization fails
+        try:
+            os.remove(READINESS_FILE)
+        except OSError:
+            pass
+        raise
 
 
 @bot.event
 async def on_disconnect():
     """Clean up database connections on disconnect."""
     logger.info("Bot disconnected, closing database pool...")
-    try:
-        os.remove(READINESS_FILE)
-    except OSError:
-        pass
+    _remove_readiness_file()
     await close_db_pool()
 
 
-@tree.command(name="ping", description="Check if the bot is responding")
-async def ping(interaction: discord.Interaction):
-    """Check if the bot is responding."""
-    start_time = time.time()
-    log_command_data(interaction, "ping")
-    
-    try:
-        if not check_channel_permission(interaction):
-            await interaction.response.send_message(
-                "❌ This bot can only be used in the designated channel.",
-                ephemeral=True
-            )
-            log_command_completion("ping", start_time, success=False, interaction=interaction, kwargs={})
-            return
-        
-        latency = round(bot.latency * 1000)
-        await interaction.response.send_message(f"Pong! Latency: {latency}ms", ephemeral=True)
-        log_command_completion("ping", start_time, success=True, interaction=interaction, kwargs={})
-    except Exception as e:
-        logger.error(f"Error in ping command: {e}", exc_info=True)
-        log_command_completion("ping", start_time, success=False, interaction=interaction, kwargs={})
-        raise
+#@tree.command(name="ping", description="Check if the bot is responding")
+#async def ping(interaction: discord.Interaction):
+#    """Check if the bot is responding."""
+#    start_time = time.time()
+#    log_command_data(interaction, "ping")
+#    
+#    try:
+#        if not check_channel_permission(interaction):
+#            await interaction.response.send_message(
+#                "❌ This bot can only be used in the designated channel.",
+#                ephemeral=True
+#            )
+#            log_command_completion("ping", start_time, success=False, interaction=interaction, kwargs={})
+#            return
+#        
+#        latency = round(bot.latency * 1000)
+#        await interaction.response.send_message(f"Pong! Latency: {latency}ms", ephemeral=True)
+#        log_command_completion("ping", start_time, success=True, interaction=interaction, kwargs={})
+#    except Exception as e:
+#        logger.error(f"Error in ping command: {e}", exc_info=True)
+#        log_command_completion("ping", start_time, success=False, interaction=interaction, kwargs={})
+#        raise
 
 
 @tree.command(name="help", description="Show available commands and weapon categories.")
@@ -285,13 +294,34 @@ async def help_command(interaction: discord.Interaction):
             )
 
 
+def _remove_readiness_file() -> None:
+    """Remove readiness file so healthcheck fails after shutdown."""
+    try:
+        os.remove(READINESS_FILE)
+    except OSError:
+        pass
+
+
 def main():
     """Main entry point for the Discord bot."""
+    def handle_shutdown_signal(signum: int, frame) -> None:
+        logger.info("Received signal %s, removing readiness file and exiting.", signum)
+        _remove_readiness_file()
+        raise SystemExit(0)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, handle_shutdown_signal)
+        except (ValueError, OSError):
+            # SIGINT not available in all contexts (e.g. threads), skip
+            pass
+
     try:
         logger.info("Starting Discord bot...")
         bot.run(DISCORD_TOKEN)
     except Exception as e:
         logger.error(f"Failed to start bot: {e}", exc_info=True)
+        _remove_readiness_file()
         raise
 
 
