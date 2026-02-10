@@ -101,18 +101,15 @@ def format_stat_monospace_table(
         player_name = row.get("player_name") or row.get("player_id", "Unknown")
         value = row.get("value", 0)
         
-        # Trim "PF | " or "PFr | " from player name
-        trimmed_player_name = re.sub(r'^(?:PF|PFr)\s*\|\s*', '', player_name)
-        
-        # Calculate dynamic widths based on actual player name length
-        actual_player_len = min(len(trimmed_player_name), max_player_width)
+        # Calculate dynamic widths based on actual player name length (includes PF | / PFr | prefix)
+        actual_player_len = min(len(player_name), max_player_width)
         actual_player_len = max(actual_player_len, min_player_width)
         
         # Give remaining space to value column
         value_width = content_width - actual_player_len
         
         rank_str = f"{str(rank) + '.':>3}"
-        player_str = trimmed_player_name[:actual_player_len].ljust(actual_player_len)
+        player_str = player_name[:actual_player_len].ljust(actual_player_len)
         value_str = format_compact_value(value, value_format, value_width)
         
         lines.append(f"{rank_str} {player_str} {value_str}")
