@@ -16,7 +16,6 @@ from typing import List, Dict, Any
 
 from apps.discord_stats_bot.common import (
     get_pathfinder_leaderboard_pool,
-    get_pathfinder_player_ids,
     escape_sql_identifier,
     create_time_filter_params,
     build_pathfinder_filter,
@@ -707,8 +706,12 @@ async def fetch_all_leaderboard_stats(
         Dictionary with stat category keys and result lists
     """
     pool = await get_pathfinder_leaderboard_pool()
-    pathfinder_ids = list(get_pathfinder_player_ids())
-    
+    # Uncomment and use this to get the pathfinder player ids
+    #pathfinder_ids = list(get_pathfinder_player_ids())
+
+    # Use empty list to include all players (no Pathfinder-only filter)
+    pathfinder_ids: List[str] = []
+
     stats = {
         "infantry_kills": await _get_most_infantry_kills(pool, days, pathfinder_ids),
         "avg_kd": await _get_average_kd(pool, days, pathfinder_ids),
